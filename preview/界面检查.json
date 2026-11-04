@@ -1,0 +1,51 @@
+{
+  "result": "PASS",
+  "checks": [
+    "four embedded illustrations decode; all existing controls mount; auto-submit default stays off",
+    "risk disclaimer is visible, expandable, and accurately describes detection limitations",
+    "sticker previews do not falsify the runtime status",
+    "broken-image fallback is visible; selecting another pose restores the illustration",
+    "save clears password field; clear-key and configuration indicator work",
+    "busy, manual pause and completion switch artwork and preserve button locking",
+    "collapse, restore, keyboard focus and Escape work",
+    "390px and 320px viewports fit without horizontal overflow; commands remain reachable",
+    "reduced-motion preference is respected"
+  ],
+  "errors": [],
+  "externalRequests": 0,
+  "phoneMetrics": {
+    "left": 8,
+    "right": 382,
+    "top": 8,
+    "bottom": 836,
+    "scrollWidth": 372,
+    "clientWidth": 372
+  },
+  "assets": [
+    {
+      "key": "welcome",
+      "width": 440,
+      "height": 440,
+      "hasAlpha": true
+    },
+    {
+      "key": "thinking",
+      "width": 440,
+      "height": 440,
+      "hasAlpha": true
+    },
+    {
+      "key": "rest",
+      "width": 440,
+      "height": 440,
+      "hasAlpha": true
+    },
+    {
+      "key": "complete",
+      "width": 440,
+      "height": 440,
+      "hasAlpha": true
+    }
+  ],
+  "limits": "Local synthetic UI checks only; no live Chaoxing or paid API calls."
+}

@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.*
+*.key
+*.pem
+local.settings.*
+chaoxing-diagnostic*.json
+*作业作答*.html
+.serena/
+.codex/

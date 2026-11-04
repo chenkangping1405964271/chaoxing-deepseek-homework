@@ -1,0 +1,140 @@
+<style>
+  :host { --ink:#244266; --muted:#7890a7; --line:#dce9f3; --blue:#4d8bc8; --mint:#e6f5f0; position:fixed; right:20px; bottom:20px; z-index:2147483647; color:var(--ink); font:13px/1.5 "Microsoft YaHei","PingFang SC",system-ui,sans-serif; text-align:left; color-scheme:light; }
+  *,*::before,*::after { box-sizing:border-box; }
+  [hidden] { display:none!important; }
+  button,input,summary { font:inherit; }
+  button { cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  button:disabled { cursor:not-allowed; opacity:.45; }
+  button:focus-visible,summary:focus-visible { outline:3px solid #84b6d9; outline-offset:3px; }
+  .box { width:min(388px,calc(100vw - 40px)); max-height:calc(100vh - 40px); max-height:calc(100dvh - 40px); display:flex; flex-direction:column; overflow:hidden; background:#fbfdff; border:1px solid #ffffff; border-radius:26px; box-shadow:0 20px 65px #274a6a30,0 3px 13px #345b7010; }
+  .hero { position:relative; isolation:isolate; flex-shrink:0; min-height:171px; overflow:hidden; padding:17px 19px 20px; background:linear-gradient(125deg,#eff7fe 0%,#e8f2fa 65%,#d6eaf6 100%); border-bottom:1px solid #e2edf4; }
+  .hero::before { content:""; position:absolute; z-index:-1; width:220px; height:220px; right:-58px; bottom:-102px; border:1px solid #fff; border-radius:50%; box-shadow:0 0 0 20px #ffffff35,0 0 0 40px #ffffff25; }
+  .hero::after { content:"✦"; position:absolute; right:116px; top:55px; color:#d4af68; font-size:19px; text-shadow:105px 60px 0 #a4c3da; pointer-events:none; }
+  .eyebrow { display:flex; align-items:center; gap:5px; width:max-content; color:#6884a2; font-size:9px; font-weight:700; letter-spacing:.14em; }
+  .eyebrow svg { width:17px; height:12px; fill:#6e9fc8; }
+  h3 { position:relative; z-index:2; width:max-content; max-width:59%; margin:16px 0 3px; font-size:27px; font-weight:800; line-height:1.24; letter-spacing:.02em; color:#26496f; }
+  .subtitle { position:relative; z-index:2; max-width:59%; margin:0; color:#6a88a3; font-size:11px; }
+  .hero-note { position:relative; z-index:2; display:inline-flex; align-items:center; gap:5px; margin-top:14px; padding:4px 9px; border:1px solid #fff; border-radius:20px; background:#ffffff9c; color:#64809a; font-size:10px; }
+  .hero-note::before { content:""; width:5px; height:5px; border-radius:50%; background:#69b39d; }
+  .collapse { position:absolute; z-index:4; right:13px; top:13px; width:29px; height:27px; padding:0; border:1px solid #ffffffd9; border-radius:9px; background:#ffffff99; color:#6485a0; font-size:20px; line-height:1; }
+  .collapse:hover { background:#fff; }
+  .mascot-slot { position:absolute; z-index:1; right:4px; bottom:0; width:172px; height:153px; pointer-events:none; }
+  .mascot-slot::before { content:""; position:absolute; bottom:10px; left:30px; width:119px; height:24px; border-radius:50%; background:#a8c8df38; filter:blur(7px); }
+  .hero-art { position:relative; display:block; width:100%; height:100%; object-fit:contain; object-position:center bottom; filter:drop-shadow(0 5px 5px #47678d16); }
+  .fallback { display:grid; place-items:center; width:100%; height:100%; font-size:67px; }
+  .body { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:13px 14px 7px; scrollbar-width:thin; scrollbar-color:#ccdde9 transparent; }
+  .pose-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px; margin-bottom:12px; }
+  .pose { position:relative; min-width:0; padding:3px 2px 5px; border:1px solid transparent; border-radius:13px; background:#f0f6fb; color:#7891a8; transition:background .16s,border-color .16s,transform .16s; }
+  .pose:hover:not(:disabled) { transform:translateY(-2px); background:#e8f2fa; }
+  .pose[aria-pressed=true] { border-color:#accce3; background:#e7f2fb; color:#39688f; }
+  .pose img { display:block; width:100%; height:48px; object-fit:contain; }
+  .pose span { display:block; font-size:10px; line-height:1.2; }
+  .section { margin:0 0 10px; padding:12px; border:1px solid var(--line); border-radius:16px; background:#fff; box-shadow:0 2px 6px #33516b03; }
+  details.section { padding:0; }
+  summary { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px; cursor:pointer; list-style:none; }
+  summary::-webkit-details-marker { display:none; }
+  .summary-label { display:flex; align-items:center; gap:8px; font-weight:700; font-size:12px; }
+  .summary-icon { display:grid; place-items:center; width:26px; height:26px; border:1px solid #e2edf5; border-radius:9px; background:#f2f7fc; color:#6c98ba; font-size:16px; font-weight:400; }
+  .summary-right { display:flex; align-items:center; gap:9px; color:var(--muted); font-size:10px; }
+  .chevron { width:7px; height:7px; margin-right:3px; border-right:1px solid #89a4ba; border-bottom:1px solid #89a4ba; transform:rotate(45deg); transition:transform .15s; }
+  details[open] .chevron { transform:rotate(225deg); }
+  .connection-body { padding:1px 12px 12px; }
+  .section-title { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:0 0 10px; font-size:12px; font-weight:700; }
+  .section-title small { color:#91a6b7; font-size:9px; letter-spacing:.08em; font-weight:500; }
+  label { display:block; color:#5c7892; font-size:11px; font-weight:600; }
+  label+label { margin-top:9px; }
+  input[type=password],input[type=text],input[type=number] { display:block; width:100%; min-width:0; height:35px; margin-top:5px; padding:7px 10px; border:1px solid #dde8f0; border-radius:10px; background:#f8fbfd; color:#355670; font-size:12px; font-weight:400; outline:none; transition:border-color .15s,box-shadow .15s; }
+  input::placeholder { color:#a1b1bf; }
+  input:focus-visible { border-color:#8fbadd; box-shadow:0 0 0 3px #c8e1f45c; }
+  .tools { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:10px; }
+  .tool { min-height:31px; padding:4px 2px; border:1px solid #e2ecf4; border-radius:9px; background:#f4f8fc; color:#6785a1; font-size:10px; white-space:nowrap; }
+  .tool:hover:not(:disabled) { background:#eaf4fb; border-color:#bfd8e9; }
+  .switches { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .switches label { display:flex; align-items:center; gap:7px; margin:0; padding:8px; border:1px solid #edf2f6; border-radius:10px; background:#f7fafc; font-size:11px; }
+  input[type=checkbox] { flex:none; width:15px; height:15px; margin:0; accent-color:#6298c5; }
+  .row { display:flex; gap:10px; margin-top:10px; }
+  .row label { flex:1; min-width:0; margin:0; }
+  .log-section { margin:0 0 5px; border-top:1px dashed #e0eaf1; }
+  .log-section summary { padding:7px 2px; color:#8aa0b4; font-size:10px; }
+  .log { max-height:80px; overflow:auto; padding:0 3px 8px; color:#7891a6; font-size:10px; overflow-wrap:anywhere; }
+  .log>div { padding:3px 0; }
+  .risk { border-color:#eadfca; background:#fffcf6; }
+  .risk .summary-label { color:#9b8055; }
+  .risk-copy { padding:0 12px 12px; color:#8d795d; font-size:11px; line-height:1.8; }
+  .risk-copy p { margin:0 0 8px; }
+  .risk-copy p:last-child { margin-bottom:0; }
+  .risk-copy a { color:#7e8fa1; }
+  .commandbar { flex-shrink:0; padding:10px 14px 11px; border-top:1px solid #e4edf4; background:#fff; }
+  .status { display:flex; align-items:center; gap:9px; min-height:39px; margin-bottom:10px; padding:7px 10px; border:1px solid #e3edf5; border-radius:12px; background:#f2f7fb; color:#5c7b95; font-size:11px; overflow-wrap:anywhere; }
+  .dot { flex:none; width:7px; height:7px; border-radius:50%; background:#8db5d1; box-shadow:0 0 0 3px #dfeef8; }
+  .box[data-tone=working] .dot { background:#6b9bcf; box-shadow:0 0 0 3px #dae8f7; animation:pulse 1.7s ease-in-out infinite; }
+  .box[data-tone=working] .hero-art { animation:float 3s ease-in-out infinite; }
+  .box[data-tone=paused] .status { border-color:#ece3d3; background:#fbf7ee; color:#9b825d; }
+  .box[data-tone=paused] .dot { background:#c8aa72; box-shadow:0 0 0 3px #f3e9d5; }
+  .box[data-tone=complete] .status { border-color:#d9eee4; background:#edf8f2; color:#66957f; }
+  .box[data-tone=complete] .dot { background:#80b39a; box-shadow:0 0 0 3px #dceee4; }
+  .actions { display:grid; grid-template-columns:1.55fr 1fr; gap:8px; }
+  .primary,.secondary { min-height:42px; border-radius:12px; font-size:12px; font-weight:700; }
+  .primary { display:flex; justify-content:center; align-items:center; gap:8px; padding:9px; border:1px solid #6595c4; background:#6b9bc9; color:white; box-shadow:0 4px 9px #7ea9ce2e; }
+  .primary:hover:not(:disabled) { background:#578bbd; }
+  .primary svg { width:19px; height:14px; fill:currentColor; }
+  .secondary { border:1px solid #e0e9f1; background:#f3f7fa; color:#7390a8; }
+  .secondary:hover:not(:disabled) { background:#e8f1f8; }
+  .footer { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:8px; color:#a1b0bd; font-size:9px; }
+  .diagnostic { min-height:24px; padding:0; border:0; background:transparent; color:#8aa1b5; font-size:10px; }
+  .diagnostic:hover { color:#5685aa; }
+  .dock { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; width:88px; min-height:100px; padding:0 0 7px; border:1px solid #d4e6f3; border-radius:23px; background:linear-gradient(#f5fbff,#e3f0fa); color:#5c82a4; box-shadow:0 8px 25px #3e68812b; }
+  .dock img { width:85px; height:82px; object-fit:contain; }
+  .dock span { font-size:10px; font-weight:700; line-height:1.2; }
+  @keyframes float { 50% { transform:translateY(-3px); } }
+  @keyframes pulse { 50% { opacity:.45; } }
+  @media(max-width:420px) { :host { right:8px; bottom:8px; } .box { width:min(388px,calc(100vw - 16px)); max-height:calc(100vh - 16px); max-height:calc(100dvh - 16px); border-radius:22px; } }
+  @media(max-height:620px) { .hero { min-height:135px; padding-top:12px; padding-bottom:12px; } h3 { margin-top:12px; font-size:24px; } .hero-note { margin-top:8px; } .mascot-slot { width:147px; height:128px; } .pose img { height:36px; } }
+  @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important; } }
+</style>
+<div class="box" data-tone="idle">
+  <header class="hero">
+    <div class="eyebrow"><svg viewBox="0 0 30 20" aria-hidden="true"><path d="M3 9c0-5 6-8 12-5 4 2 5 5 5 7 4 0 5-3 6-5 3 5 2 9-3 9-2 4-7 5-12 4C6 18 3 15 3 9Z"/></svg> DEEPSEEK · STUDY COMPANION</div>
+    <h3>大肥鱼<br>作业小屋</h3>
+    <p class="subtitle">今天，也一起慢慢来。</p>
+    <span class="hero-note" data-role="companion-caption">小鱼已经准备好啦</span>
+    <button type="button" class="collapse" aria-expanded="true" aria-label="收起助手" title="收起助手">−</button>
+    <div class="mascot-slot" aria-hidden="true"><span class="fallback" hidden>🐳</span><img class="hero-art" data-role="mascot" data-art="welcome" alt="" draggable="false"></div>
+  </header>
+  <main class="body">
+    <div class="pose-strip" role="group" aria-label="大肥鱼贴纸预览">
+      <button type="button" class="pose" data-pose="welcome" aria-label="预览打招呼贴纸" aria-pressed="true"><img data-art="welcome" alt="" draggable="false"><span>打个招呼</span></button>
+      <button type="button" class="pose" data-pose="thinking" aria-label="预览思考贴纸" aria-pressed="false"><img data-art="thinking" alt="" draggable="false"><span>认真思考</span></button>
+      <button type="button" class="pose" data-pose="rest" aria-label="预览休息贴纸" aria-pressed="false"><img data-art="rest" alt="" draggable="false"><span>歇一小会</span></button>
+      <button type="button" class="pose" data-pose="complete" aria-label="预览庆祝贴纸" aria-pressed="false"><img data-art="complete" alt="" draggable="false"><span>小小庆祝</span></button>
+    </div>
+    <details class="section risk" data-role="disclaimer">
+      <summary><span class="summary-label">⚠ 使用前必读 · 风险与免责声明</span><span class="chevron" aria-hidden="true"></span></summary>
+      <div class="risk-copy">
+        <p>平台会运用 AI、大数据等技术监测异常学习行为，并向高校通报。违规行为一经查实，学校可依规取消成绩，视情节给予警告直至开除学籍等处分。</p>
+        <p>本脚本没有“拟人化防检测”配置。题间隔不构成防检测保障，也不承诺账号、成绩或学籍不受影响。</p>
+        <p><strong>本项目仅供个人学习辅助与技术研究，使用产生的一切后果由使用者自行承担。</strong>请遵守学校、课程和平台要求；本声明不改变适用规则或依法应承担的责任。</p>
+        <p><a href="https://www.moe.gov.cn/srcsite/A08/s7056/202204/t20220401_612700.html" target="_blank" rel="noopener noreferrer">政策来源：教高〔2022〕1号，第10、13、14条 ↗</a></p>
+      </div>
+    </details>
+    <details class="section" data-role="connection">
+      <summary><span class="summary-label"><span class="summary-icon" aria-hidden="true">⌁</span>连接 DeepSeek</span><span class="summary-right"><span data-role="key-state">待配置</span><span class="chevron" aria-hidden="true"></span></span></summary>
+      <div class="connection-body">
+        <label>API Key<input data-field="apiKey" type="password" autocomplete="off" placeholder="输入密钥，保存后自动清空"></label>
+        <label>模型<input data-field="model" type="text" list="cxds-models" placeholder="读取模型，或输入模型名称"><datalist id="cxds-models"></datalist></label>
+        <div class="tools"><button type="button" class="tool" data-action="save">保存设置</button><button type="button" class="tool" data-action="clearKey">清除 Key</button><button type="button" class="tool" data-action="models">读取模型</button><button type="button" class="tool" data-action="test">测试连接</button></div>
+      </div>
+    </details>
+    <section class="section"><h4 class="section-title">作业设置 <small>按自己的节奏来</small></h4>
+      <div class="switches"><label><input type="checkbox" data-field="autoNext">自动翻页</label><label><input type="checkbox" data-field="autoSubmit">自动提交</label></div>
+      <div class="row"><label>作业总题数<input type="number" min="0" data-field="expectedTotal"></label><label>题间隔（毫秒）<input type="number" min="0" max="30000" data-field="delayMs"></label></div>
+    </section>
+    <details class="log-section"><summary><span>运行记录</span><span class="chevron" aria-hidden="true"></span></summary><div class="log" data-role="log"></div></details>
+  </main>
+  <div class="commandbar">
+    <div class="status" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span data-role="status">等待开始</span></div>
+    <div class="actions"><button type="button" class="primary" data-action="start"><svg viewBox="0 0 30 20" aria-hidden="true"><path d="M3 9c0-5 6-8 12-5 4 2 5 5 5 7 4 0 5-3 6-5 3 5 2 9-3 9-2 4-7 5-12 4C6 18 3 15 3 9Z"/></svg>开始答题<span aria-hidden="true">→</span></button><button type="button" class="secondary" data-action="stop" disabled>暂停</button></div>
+    <div class="footer"><span>非官方小助手 · 答案记得核对</span><button type="button" class="diagnostic" data-action="diagnostic">导出诊断 ↗</button></div>
+  </div>
+</div>
+<button type="button" class="dock" aria-label="展开大肥鱼助手" aria-expanded="false" hidden><img data-role="dock-mascot" data-art="welcome" alt="" draggable="false"><span>小鱼在这里</span></button>
