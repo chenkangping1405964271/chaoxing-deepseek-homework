@@ -1,4 +1,4 @@
-# DeepSeek 娘作业小屋
+# DeepSeek 娘答题助手
 
 ## ⚠️ 使用前必读（风险提示）
 
@@ -13,7 +13,7 @@
 
 本项目非超星或 DeepSeek 官方产品；当前是浏览器油猴脚本，不能直接在学习通官方安卓 App 中运行。
 
-<img src="preview/新版界面.png" width="350" alt="DeepSeek 娘作业小屋界面，本地虚构页面截图">
+<img src="preview/新版界面.png?v=0.4.3" width="350" alt="DeepSeek 娘答题助手界面，本地虚构页面截图">
 
 ## 安装
 
