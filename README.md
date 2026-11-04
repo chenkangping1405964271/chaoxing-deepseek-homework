@@ -65,7 +65,7 @@ npm run check-ui
 
 ## 致谢
 
-感谢 DeepSeek、ChatGPT 和 Codex 对本项目的支持：DeepSeek 提供模型 API，ChatGPT 与 Codex 协助文案整理、界面设计及代码开发。
+感谢 DeepSeek、ChatGPT 和 [Codex](https://github.com/codex) 对本项目的支持：DeepSeek 提供模型 API，ChatGPT 与 Codex 协助文案整理、界面设计及代码开发。
 
 ## 许可证与素材来源
 
