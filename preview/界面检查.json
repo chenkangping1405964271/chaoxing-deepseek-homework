@@ -2,7 +2,6 @@
   "result": "PASS",
   "checks": [
     "four embedded illustrations decode; all existing controls mount; auto-submit default stays off",
-    "risk disclaimer is visible, expandable, and accurately describes detection limitations",
     "sticker previews do not falsify the runtime status",
     "broken-image fallback is visible; selecting another pose restores the illustration",
     "save clears password field; clear-key and configuration indicator work",

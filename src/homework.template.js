@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.4.1
+// @version      0.4.2
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
@@ -22,11 +22,6 @@
 
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 chaoxing-deepseek-homework contributors
-// ⚠ 使用前必读：平台会监测异常学习行为，并可能通报所在高校。
-// 违规行为查实后，学校可依规取消成绩，视情节给予警告直至开除学籍等处分。
-// 本脚本没有拟人化防检测配置；题间隔设置不构成防检测保障。
-// 本项目仅供个人学习辅助与技术研究，使用产生的一切后果由使用者自行承担。
-// 本声明不改变适用规则或相关主体依法应承担的责任，详情见 DISCLAIMER.md。
 
 (() => {
   'use strict';
@@ -96,13 +91,13 @@
 
   function syncCompanion(message) {
     if (!panel || !statusNode) return;
-    let pose = 'welcome', tone = 'idle', caption = '小鱼已经准备好啦';
+    let pose = 'welcome', tone = 'idle', caption = 'DeepSeek 娘准备好啦';
     if (/已暂停|手动暂停/.test(message)) {
       pose = 'rest'; tone = 'paused'; caption = '歇一小会，等你回来';
     } else if (/填答完成|已点击提交/.test(message)) {
       pose = 'complete'; tone = 'complete'; caption = '这一轮完成啦，记得核对哦';
     } else if (running || /正在请求/.test(message)) {
-      pose = 'thinking'; tone = 'working'; caption = '小鱼正在认真思考';
+      pose = 'thinking'; tone = 'working'; caption = 'DeepSeek 娘正在思考';
     }
     showPose(pose);
     panel.querySelector('.box').dataset.tone = tone;

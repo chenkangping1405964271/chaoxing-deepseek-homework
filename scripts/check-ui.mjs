@@ -17,7 +17,7 @@ const browser = await chromium.launch({ executablePath: edge, headless: true });
 const errors = [];
 const requests = [];
 const checks = [];
-const fixture = `<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><title>大肥鱼作业小屋 · 本地界面预览</title>
+const fixture = `<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><title>DeepSeek 娘作业小屋 · 本地界面预览</title>
 <style>body{margin:0;background:#edf3f7;color:#45637d;font-family:"Microsoft YaHei",sans-serif}main{max-width:650px;margin:76px 450px 0 58px}small{letter-spacing:.2em;color:#9aaebe}h1{font-size:31px;margin:18px 0 12px;color:#385774}p{font-size:13px;line-height:1.9;color:#8ba0b0}.lesson{padding:25px;margin-top:28px;border:1px solid #dce7ee;border-radius:20px;background:#ffffffbb}.questionLi{margin-top:22px;padding:20px;background:white;border-radius:15px;border:1px solid #e1eaf1;font-size:13px}.questionLi h3{font-size:14px}.option{padding:12px;border-top:1px solid #edf2f6;color:#8297a8}@media(max-width:600px){main{margin:24px 20px}h1{font-size:24px}}</style>
 <main><small>WHALE STUDY ROOM</small><h1>给学习，留一点可爱。</h1><p>这是本地虚构页面，用来检查新版界面的排版与交互。<br>页面不会访问学习通，也不会调用真实模型。</p><section class="lesson">章节练习 <span style="float:right;color:#a9b9c5;font-size:12px">本地演示</span>
 <div class="questionLi"><h3 class="mark_name">1.（单选题）以下哪一种动物生活在海洋中？</h3><div class="option">A. 鲸鱼</div><div class="option">B. 小兔</div></div></section></main></html>`;
@@ -45,14 +45,6 @@ try {
   assert.equal(await shell.locator('[data-role="connection"]').getAttribute('open'), '');
   assert.equal(await shell.locator('[data-field="autoSubmit"]').isChecked(), false);
   checks.push('four embedded illustrations decode; all existing controls mount; auto-submit default stays off');
-  const disclaimer = shell.locator('[data-role="disclaimer"]');
-  assert.equal(await disclaimer.count(), 1);
-  await disclaimer.locator('summary').click();
-  assert.match(await disclaimer.textContent(), /使用产生的一切后果由使用者自行承担/);
-  assert.match(await disclaimer.textContent(), /没有“拟人化防检测”配置/);
-  assert.match(await disclaimer.textContent(), /开除学籍/);
-  await disclaimer.locator('summary').click();
-  checks.push('risk disclaimer is visible, expandable, and accurately describes detection limitations');
 
   for (const [pose, label] of [['thinking', '认真思考'], ['rest', '歇一小会'], ['complete', '小小庆祝'], ['welcome', '打个招呼']]) {
     await shell.locator(`.pose[data-pose="${pose}"]`).click();
