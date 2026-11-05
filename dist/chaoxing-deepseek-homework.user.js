@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.4.4
+// @version      0.4.5
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
@@ -330,11 +330,139 @@
     if (!running || token !== generation) throw new Error('手动暂停');
   }
 
+  async function waitForMedia(promise, token, label) {
+    let done = false, result, failure;
+    Promise.resolve(promise).then(value => { result = value; done = true; }, error => { failure = error; done = true; });
+    for (let i = 0; i <= 100; i++) {
+      assertRunning(token);
+      if (done) {
+        if (failure) throw new Error(label + '失败，请刷新作业页后重试');
+        return result;
+      }
+      if (i === 100) throw new Error(label + '超时，请刷新作业页后重试');
+      await wait(100);
+    }
+  }
+
+  // Draw only the requested title/option, using its own document's loaded font glyphs.
+  // Encoded text stays local. Images are read into data URLs before drawing to avoid a tainted canvas.
+  async function renderQuestionFragment(element, token) {
+    const doc = element.ownerDocument, view = doc.defaultView;
+    if (!visible(element)) throw new Error('题目已隐藏或切换');
+    const walker = doc.createTreeWalker(element, view.NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (node.data.trim() && visible(node.parentElement) && !node.parentElement.closest('script, style, textarea, [contenteditable="true"]')) nodes.push(node);
+    }
+    if (nodes.reduce((sum, node) => sum + node.data.length, 0) > 20000) throw new Error('题目文字过长，请手动处理');
+    const fonts = new Map();
+    for (const node of nodes) {
+      if (!node.parentElement.closest('.font-cxsecret')) continue;
+      const style = view.getComputedStyle(node.parentElement);
+      if (!style.fontFamily.includes('font-cxsecret')) throw new Error('加密字体样式尚未加载，请刷新作业页');
+      const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      fonts.set(font, (fonts.get(font) || '') + node.data);
+    }
+    for (const [font, text] of fonts) {
+      const loaded = await waitForMedia(doc.fonts.load(font, text), token, '加密字体加载');
+      if (!loaded.some(face => /font-cxsecret/.test(face.family) && face.status === 'loaded')) throw new Error('加密字体尚未加载，请刷新作业页');
+    }
+    const pictures = [];
+    for (const image of [...element.querySelectorAll('img')].filter(visible)) {
+      if (pictures.length >= 12) throw new Error('单个题干或选项图片超过 12 张');
+      const source = image.currentSrc || image.getAttribute('src');
+      if (!source) throw new Error('题目图片缺少地址');
+      const data = await readImage(new URL(source, image.baseURI).href);
+      assertRunning(token);
+      const decoded = new view.Image();
+      decoded.src = data;
+      await waitForMedia(decoded.decode(), token, '题目图片解码');
+      // Lazy images must have layout dimensions before we capture character positions.
+      if (!image.complete || !image.naturalWidth) await waitForMedia(image.decode(), token, '页面题目图片加载');
+      pictures.push({ element: image, image: decoded });
+    }
+    assertRunning(token);
+    if (!visible(element)) throw new Error('题目已隐藏或切换');
+    const canvas = doc.createElement('canvas'), context = canvas.getContext('2d');
+    if (!context) throw new Error('浏览器无法绘制题目图片');
+    const operations = [];
+    const segmenter = new view.Intl.Segmenter('zh', { granularity: 'grapheme' });
+    for (const node of nodes) {
+      const style = view.getComputedStyle(node.parentElement);
+      const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      context.font = font;
+      const range = doc.createRange();
+      for (const { segment, index } of segmenter.segment(node.data)) {
+        if (!segment.trim()) continue;
+        range.setStart(node, index);
+        range.setEnd(node, index + segment.length);
+        const rect = range.getBoundingClientRect();
+        if (!rect.width || !rect.height) continue;
+        const metrics = context.measureText(segment);
+        const ascent = metrics.fontBoundingBoxAscent ?? parseFloat(style.fontSize) * 0.8;
+        const descent = metrics.fontBoundingBoxDescent ?? parseFloat(style.fontSize) * 0.2;
+        operations.push({ text: segment, font, rect, baseline: rect.top + (rect.height - ascent - descent) / 2 + ascent });
+      }
+    }
+    for (const picture of pictures) {
+      const rect = picture.element.getBoundingClientRect();
+      if (!rect.width || !rect.height) throw new Error('题目图片尚未显示，请等待加载后重试');
+      operations.push({ image: picture.image, rect });
+    }
+    if (!operations.length) throw new Error('题目截图为空，请等待题目显示后重试');
+    const left = Math.min(...operations.map(op => op.rect.left)) - 8;
+    const top = Math.min(...operations.map(op => op.rect.top)) - 8;
+    const width = Math.ceil(Math.max(...operations.map(op => op.rect.right)) - left + 8);
+    const height = Math.ceil(Math.max(...operations.map(op => op.rect.bottom)) - top + 8);
+    if (width > 4096 || height > 4096 || width * height > 4 * 1024 * 1024) throw new Error('题目截图尺寸过大，请手动处理');
+    const scale = Math.min(2, 4096 / Math.max(width, height));
+    canvas.width = Math.ceil(width * scale);
+    canvas.height = Math.ceil(height * scale);
+    context.scale(scale, scale);
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, width, height);
+    context.fillStyle = '#000';
+    for (const op of operations) {
+      if (op.image) context.drawImage(op.image, op.rect.left - left, op.rect.top - top, op.rect.width, op.rect.height);
+      else {
+        context.font = op.font;
+        context.fillText(op.text, op.rect.left - left, op.baseline - top);
+      }
+    }
+    const data = canvas.toDataURL('image/png');
+    if (data.length > 12 * 1024 * 1024) throw new Error('题目截图超过大小限制，请手动处理');
+    return data;
+  }
+
+  async function questionContent(question, token) {
+    const payload = { question: question.visual ? '题干见图片' : question.stem, type: question.type,
+      options: question.choices.map(c => ({ key: c.key, text: question.visual ? '选项' + c.key + '见图片' : c.text })), blank_count: question.inputs.length };
+    if (!question.visual && !question.images.length) return JSON.stringify(payload);
+    if (settings.model === 'deepseek-v4-pro') throw new Error('此题需要视觉模型，请在连接设置中选择 deepseek-flash 并保存');
+    const content = [{ type: 'text', text: JSON.stringify(payload) }];
+    let contentLength = content[0].text.length * 3;
+    const parts = question.visual
+      ? [{ label: '题干截图', element: question.title }, ...question.choices.map(c => ({ label: '选项' + c.key + '截图', element: c.textElement || c.container }))]
+      : question.images;
+    if (question.visual) setStatus('正在读取第 ' + (question.number || '') + ' 题的加密字体图片');
+    for (const part of parts) {
+      assertRunning(token);
+      const url = part.element ? await renderQuestionFragment(part.element, token) : await readImage(part.src);
+      assertRunning(token);
+      if (!frameDocuments().documents.includes(question.root.ownerDocument) || !question.root.isConnected || parseQuestion(question.root).signature !== question.signature) throw new Error('答题过程中页面发生变化');
+      contentLength += url.length + part.label.length + 128;
+      if (contentLength > 32 * 1024 * 1024) throw new Error('单题图片内容过大，请手动处理');
+      content.push({ type: 'text', text: part.label }, { type: 'image_url', image_url: { url } });
+    }
+    return content;
+  }
+
   function parseQuestion(root) {
     const title = root.querySelector('.splitS-left .mark_name, .Zy_TItle .clearfix, .Zy_TItle, .mark_name');
     if (!title) throw new Error('无法识别题干');
-    if (root.querySelector('.font-cxsecret') || root.classList.contains('font-cxsecret')) throw new Error('题目使用加密字体，暂无法读取正确题干');
-    if (title.matches('.font-cxsecret') || title.querySelector('video, audio, canvas, svg, .font-cxsecret')) throw new Error('题干含不支持的媒体或混淆内容');
+    const visual = !!root.querySelector('.font-cxsecret') || root.classList.contains('font-cxsecret');
+    if (title.querySelector('video, audio, canvas, svg')) throw new Error('题干含不支持的媒体');
     const images = [];
     const collectImages = (element, label) => {
       const found = [...element.querySelectorAll('img')];
@@ -370,24 +498,24 @@
       if (controls.length) {
         choices = controls.map((input, index) => {
           const container = input.closest('label, li') || input.parentElement;
-          if (container.querySelector('canvas, video, audio, svg, .font-cxsecret')) throw new Error('选项含不支持的媒体或混淆内容');
+          if (container.querySelector('canvas, video, audio, svg')) throw new Error('选项含不支持的媒体');
           const key = String.fromCharCode(65 + index);
           const imageCount = collectImages(container, '选项' + key);
           return { key, text: clean(container.textContent).replace(/^[A-Z][.、．)）:]\s*/, ''), imageCount, input, container };
         });
       } else {
         choices = [...root.querySelectorAll('.answerBg .answer_p, .Zy_ulTop > li .after')].filter(visibleOptionText).map((element, index) => {
-          if (element.querySelector('canvas, video, audio, svg, .font-cxsecret')) throw new Error('选项含不支持的媒体或混淆内容');
+          if (element.querySelector('canvas, video, audio, svg')) throw new Error('选项含不支持的媒体');
           const key = String.fromCharCode(65 + index);
           const imageCount = collectImages(element, '选项' + key);
           const container = element.closest('.Zy_ulTop > li') || element.parentElement;
-          return { key, text: clean(element.textContent).replace(/^[A-Z][.、．)）:]\s*/, ''), imageCount, container, element: container.matches('.Zy_ulTop > li') ? container : element };
+          return { key, text: clean(element.textContent).replace(/^[A-Z][.、．)）:]\s*/, ''), imageCount, container, textElement: element, element: container.matches('.Zy_ulTop > li') ? container : element };
         });
       }
       if (choices.length < 2 || choices.length > 26 || choices.some(c => !c.text && !c.imageCount)) throw new Error('无法识别完整选项');
     }
     if (images.length > 12) throw new Error('单题图片超过 12 张，请手动处理');
-    return { root, title, stem, type, number, id, choices, inputs, images, signature: JSON.stringify([id, number, stem, type, inputs.length, choices.map(c => c.text), images]) };
+    return { root, title, stem, type, number, id, choices, inputs, images, visual, signature: JSON.stringify([id, number, stem, type, visual, inputs.length, choices.map(c => c.text), images]) };
   }
 
   function selected(choice) {
@@ -398,8 +526,8 @@
   function resolveChoice(question, answer) {
     const value = clean(answer);
     let matches = question.choices.filter(c => c.key === value.toUpperCase());
-    if (!matches.length) matches = question.choices.filter(c => clean(c.text) === value);
-    if (!matches.length && question.type === 'judge') {
+    if (!matches.length && !question.visual) matches = question.choices.filter(c => clean(c.text) === value);
+    if (!matches.length && !question.visual && question.type === 'judge') {
       const truth = /^(正确|对|是|true|√)$/i.test(value) ? true : /^(错误|错|否|false|×)$/i.test(value) ? false : null;
       if (truth !== null) matches = question.choices.filter(c => (truth ? /^(正确|对|是|true|√)$/i : /^(错误|错|否|false|×)$/i).test(clean(c.text)));
     }
@@ -469,26 +597,11 @@
         for (const q of questions) {
           assertRunning(token);
           if (q.number && seen.has(q.number)) throw new Error('题号重复');
+          const userContent = await questionContent(q, token);
+          assertRunning(token);
           setStatus('正在请求第 ' + (q.number || seen.size + 1) + ' 题');
-          const payload = { question: q.stem, type: q.type, options: q.choices.map(c => ({ key: c.key, text: c.text })), blank_count: q.inputs.length };
-          let userContent = JSON.stringify(payload);
-          if (q.images.length) {
-            if (settings.model === 'deepseek-v4-pro') throw new Error('所选模型不支持图片，请选择 deepseek-flash');
-            userContent = [{ type: 'text', text: JSON.stringify(payload) }];
-            // A conservative bound for UTF-8 question text plus ASCII base64 payloads.
-            let contentLength = userContent[0].text.length * 3;
-            for (const image of q.images) {
-              assertRunning(token);
-              const url = await readImage(image.src);
-              assertRunning(token);
-              if (!q.root.isConnected || parseQuestion(q.root).signature !== q.signature) throw new Error('答题过程中页面发生变化');
-              contentLength += url.length + image.label.length + 128;
-              if (contentLength > 32 * 1024 * 1024) throw new Error('单题图片内容过大，请手动处理');
-              userContent.push({ type: 'text', text: image.label }, { type: 'image_url', image_url: { url } });
-            }
-          }
           const result = await completion([
-            { role: 'system', content: '解答课程作业。仅输出 JSON 对象，格式 {"answers":["A"],"needs_review":false,"reason":"简短依据"}。选择题 answers 用选项字母，多选每个字母单独一项。填空或简答按顺序给出每个文本框答案。信息不足或无法判断时 needs_review 为 true。' },
+            { role: 'system', content: '解答课程作业。仅输出 JSON 对象，格式 {"answers":["A"],"needs_review":false,"reason":"简短依据"}。选择题 answers 用选项字母，多选每个字母单独一项。填空或简答按顺序给出每个文本框答案。题干或选项标记见图片时，读取相应截图中的文字与公式；不要猜测不清晰的字。信息不足或无法判断时 needs_review 为 true。' },
             { role: 'user', content: userContent }
           ]);
           assertRunning(token);
@@ -569,7 +682,8 @@
     const questionRoots = roots();
     return { page: location.origin + location.pathname, title: document.title, questionCount: questionRoots.length,
       documentCount: documents.length, frames,
-      documents: documents.map(doc => ({ page: doc.location.origin + doc.location.pathname, questionCount: rootsIn(doc).length })),
+      documents: documents.map(doc => ({ page: doc.location.origin + doc.location.pathname, questionCount: rootsIn(doc).length,
+        encryptedFontLoaded: [...doc.fonts].some(face => /font-cxsecret/.test(face.family) && face.status === 'loaded') })),
       candidateCount: candidates.length, excludedContainerCount: candidates.length - questionRoots.length,
       questions: questionRoots.map(root => ({ className: root.className, hasTitle: !!root.querySelector('.Zy_TItle, .mark_name'),
         controls: root.querySelectorAll('input, textarea, [contenteditable]').length,

@@ -79,9 +79,9 @@ try {
   const panels = await Promise.all(test.page.frames().map(frame => frame.locator('#cxds-panel').count()));
   assert.equal(panels.reduce((a, b) => a + b, 0), 1);
   await test.page.evaluate(() => window.__cxdsFrameTest.run());
-  assert.match(await test.page.locator('#cxds-panel [data-role="status"]').textContent(), /加密字体/);
+  assert.match(await test.page.locator('#cxds-panel [data-role="status"]').textContent(), /加密字体样式尚未加载/);
   assert.equal(await test.page.evaluate(() => window.__requests.length), 0);
-  checks.push('three iframe layers: 10 encrypted questions found; one panel; hidden/exam frames excluded; no model request; diagnostic redacted');
+  checks.push('three iframe layers: 10 encrypted questions found; one panel; hidden/exam frames excluded; absent font pauses before model request; diagnostic redacted');
   await test.context.close();
 
   test = await setup(legacy());

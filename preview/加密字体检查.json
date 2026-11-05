@@ -1,0 +1,14 @@
+{
+  "result": "PASS",
+  "checks": [
+    "child-frame custom glyph pixels match the browser appearance; native selection persists; text payload excludes encoded characters and surrounding content",
+    "inline formula images are drawn into the same title image without tainting the canvas",
+    "missing custom font pauses before sending an incorrect fallback image",
+    "text-only model receives a specific switch-to-vision message before requesting",
+    "pause interrupts pending font preparation and prevents a later model request",
+    "model uncertainty leaves answers untouched",
+    "visual answers must match option letters instead of matching encoded source strings"
+  ],
+  "browserErrors": [],
+  "limits": "Original geometric test font and fictional questions; mocked API only. No real course font or course content included."
+}
