@@ -58,6 +58,7 @@ try {
   await shell.locator('.fallback').waitFor({ state: 'visible' });
   await shell.locator('.pose[data-pose="rest"]').click();
   await page.waitForFunction(() => document.querySelector('#cxds-panel').shadowRoot.querySelector('[data-role="mascot"]').naturalWidth > 0);
+  await shell.locator('.fallback').waitFor({ state: 'hidden' });
   assert.equal(await shell.locator('.fallback').isVisible(), false);
   checks.push('broken-image fallback is visible; selecting another pose restores the illustration');
   await page.evaluate(() => window.__cxdsUiTest.setStatus('等待开始'));

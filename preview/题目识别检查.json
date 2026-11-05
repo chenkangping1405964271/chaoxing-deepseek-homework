@@ -1,0 +1,17 @@
+{
+  "result": "PASS",
+  "checks": [
+    "three iframe layers: 10 encrypted questions found; one panel; hidden/exam frames excluded; no model request; diagnostic redacted",
+    "legacy question number/type/options and iframe-relative image URLs parsed; native option click updates hidden answer; outer navigation untouched",
+    "next-question lookup and pagination stay inside the selected work document",
+    "optional submission and confirmation only target the selected work document",
+    "delayed iframe question rendering is awaited before recognition",
+    "pause cancels the question-loading wait without making a model request",
+    "ambiguous simultaneous work documents pause before requesting answers",
+    "iframe navigation during model request prevents stale-answer writes",
+    "text fields receive input/change events created in their own iframe window",
+    "loading times out with separate messages for empty pages and inaccessible iframe content"
+  ],
+  "browserErrors": [],
+  "network": "All URLs fulfilled locally or blocked; model API mocked."
+}

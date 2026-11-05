@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.4.3
+// @version      0.4.4
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
@@ -26,6 +26,9 @@
 (() => {
   'use strict';
 
+  // One controller per accessible frame tree keeps wrappers from showing duplicate panels.
+  try { if (window.parent !== window && window.parent.document) return; } catch { /* Separate origin. */ }
+
   const SETTINGS = 'cxds.settings.v1';
   const ART = __CXDS_ART__;
   const PANEL_HTML = __CXDS_PANEL__;
@@ -41,18 +44,53 @@
 
   const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const roots = () => {
-    const candidates = [...document.querySelectorAll('.TiMu, .questionLi')].filter(visible);
+  const isExam = doc => /\/exam(?:-ans)?\//i.test(doc.location.pathname);
+  const rootsIn = doc => {
+    const candidates = [...doc.querySelectorAll('.TiMu, .questionLi')].filter(visible);
     return candidates.filter(root => !candidates.some(other => root !== other && root.contains(other)));
   };
+  const roots = () => frameDocuments().documents.flatMap(rootsIn);
   const field = name => panel.querySelector(`[data-field="${name}"]`);
   const action = name => panel.querySelector(`[data-action="${name}"]`);
+
+  function frameDocuments() {
+    const documents = [], frames = [], visited = new Set();
+    const visit = doc => {
+      if (visited.has(doc) || isExam(doc)) return;
+      visited.add(doc);
+      documents.push(doc);
+      for (const frame of doc.querySelectorAll('iframe, frame')) {
+        if (!visible(frame)) continue;
+        let child;
+        try { child = frame.contentDocument; if (child) void child.location.href; } catch { child = null; }
+        frames.push({ accessible: !!child, page: child ? child.location.origin + child.location.pathname : null });
+        if (child) visit(child);
+      }
+    };
+    visit(document);
+    return { documents, frames };
+  }
+
+  async function findQuestionDocument(token) {
+    setStatus('正在等待作业题目加载');
+    for (let i = 0; i <= 100; i++) {
+      assertRunning(token);
+      const { documents, frames } = frameDocuments();
+      const matches = documents.filter(doc => rootsIn(doc).length);
+      if (matches.length > 1) throw new Error('发现多个作业页面，请只打开一份作业');
+      if (matches.length === 1) return matches[0];
+      if (i === 100) throw new Error(frames.some(f => !f.accessible)
+        ? '题目所在 iframe 无法访问，请切换到题目内的助手或单独打开作业页'
+        : '作业题目尚未加载，请先打开可作答的作业再开始');
+      await wait(100);
+    }
+  }
 
   function visible(el) {
     if (!el || !el.isConnected) return false;
     for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
       if (node.hidden || node.getAttribute('aria-hidden') === 'true') return false;
-      const style = getComputedStyle(node);
+      const style = node.ownerDocument.defaultView.getComputedStyle(node);
       if (style.display === 'none' || style.visibility === 'hidden') return false;
     }
     return true;
@@ -61,7 +99,7 @@
   function visibleOptionText(el) {
     const parent = el && el.parentElement;
     if (!parent || !visible(parent) || el.hidden || parent.matches('[disabled], [aria-disabled="true"], .disabled')) return false;
-    const style = getComputedStyle(el);
+    const style = el.ownerDocument.defaultView.getComputedStyle(el);
     return style.display !== 'none' && style.visibility !== 'hidden';
   }
 
@@ -295,7 +333,7 @@
   function parseQuestion(root) {
     const title = root.querySelector('.splitS-left .mark_name, .Zy_TItle .clearfix, .Zy_TItle, .mark_name');
     if (!title) throw new Error('无法识别题干');
-    if (root.querySelector('.font-cxsecret') || root.classList.contains('font-cxsecret')) throw new Error('题目含混淆字体');
+    if (root.querySelector('.font-cxsecret') || root.classList.contains('font-cxsecret')) throw new Error('题目使用加密字体，暂无法读取正确题干');
     if (title.matches('.font-cxsecret') || title.querySelector('video, audio, canvas, svg, .font-cxsecret')) throw new Error('题干含不支持的媒体或混淆内容');
     const images = [];
     const collectImages = (element, label) => {
@@ -303,7 +341,7 @@
       found.forEach((image, index) => {
         const src = image.currentSrc || image.getAttribute('src');
         if (!src) throw new Error('题目图片缺少地址');
-        images.push({ label: label + '图片' + (index + 1), src });
+        images.push({ label: label + '图片' + (index + 1), src: new URL(src, image.baseURI).href });
       });
       return found.length;
     };
@@ -319,9 +357,9 @@
     else if (/判断/.test(stem)) type = 'judge';
     else if (/填空|简答|论述|问答/.test(stem)) type = 'text';
     if (!type) throw new Error('不支持的题型');
-    const numberMatch = stem.match(/^\s*(\d+)\s*[.、．)）]/);
+    const numberMatch = stem.match(/^\s*(\d+)\s*[.、．)）]/) || clean(root.querySelector('.Zy_TItle > i')?.textContent).match(/^(\d+)$/);
     const number = numberMatch ? Number(numberMatch[1]) : null;
-    const id = root.dataset.questionid || root.getAttribute('questionid') || root.id || '';
+    const id = root.dataset.questionid || root.getAttribute('questionid') || root.id || typeInputs[0]?.id.replace(/^answertype/, '') || '';
     let choices = [];
     let inputs = [];
     if (type === 'text') {
@@ -338,11 +376,12 @@
           return { key, text: clean(container.textContent).replace(/^[A-Z][.、．)）:]\s*/, ''), imageCount, input, container };
         });
       } else {
-        choices = [...root.querySelectorAll('.answerBg .answer_p')].filter(visibleOptionText).map((element, index) => {
+        choices = [...root.querySelectorAll('.answerBg .answer_p, .Zy_ulTop > li .after')].filter(visibleOptionText).map((element, index) => {
           if (element.querySelector('canvas, video, audio, svg, .font-cxsecret')) throw new Error('选项含不支持的媒体或混淆内容');
           const key = String.fromCharCode(65 + index);
           const imageCount = collectImages(element, '选项' + key);
-          return { key, text: clean(element.textContent).replace(/^[A-Z][.、．)）:]\s*/, ''), imageCount, container: element.parentElement, element };
+          const container = element.closest('.Zy_ulTop > li') || element.parentElement;
+          return { key, text: clean(element.textContent).replace(/^[A-Z][.、．)）:]\s*/, ''), imageCount, container, element: container.matches('.Zy_ulTop > li') ? container : element };
         });
       }
       if (choices.length < 2 || choices.length > 26 || choices.some(c => !c.text && !c.imageCount)) throw new Error('无法识别完整选项');
@@ -377,8 +416,9 @@
         const input = question.inputs[i];
         if (input.isContentEditable) input.textContent = result.answers[i];
         else input.value = result.answers[i];
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
+        const InputEvent = input.ownerDocument.defaultView.Event;
+        input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        input.dispatchEvent(new InputEvent('change', { bubbles: true }));
       }
       return () => question.root.isConnected && question.inputs.every((input, i) => input.isConnected && question.root.contains(input) && (input.isContentEditable ? input.textContent : input.value) === result.answers[i]);
     }
@@ -393,14 +433,14 @@
     return () => question.root.isConnected && question.choices.every(choice => choice.container.isConnected && question.root.contains(choice.container) && (!choice.input || (choice.input.isConnected && question.root.contains(choice.input))) && selected(choice) === targets.includes(choice));
   }
 
-  function usableButtons(pattern) {
-    return [...document.querySelectorAll('button, a, input[type="button"], input[type="submit"], [role="button"], .nextBtn, .submitBtn')]
+  function usableButtons(pattern, doc) {
+    return [...doc.querySelectorAll('button, a, input[type="button"], input[type="submit"], [role="button"], .nextBtn, .submitBtn')]
       .filter(el => visible(el) && !el.disabled && !el.classList.contains('disabled') && el.getAttribute('aria-disabled') !== 'true' && pattern.test(clean(el.value || el.textContent)));
   }
 
-  function nextButton() {
-    const known = [...document.querySelectorAll('[onclick="getTheNextQuestion(1)"]')].filter(el => visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true' && !el.classList.contains('disabled'));
-    const candidates = known.length ? known : usableButtons(/^(下一题|下一页)$/);
+  function nextButton(doc) {
+    const known = [...doc.querySelectorAll('[onclick="getTheNextQuestion(1)"]')].filter(el => visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true' && !el.classList.contains('disabled'));
+    const candidates = known.length ? known : usableButtons(/^(下一题|下一页)$/, doc);
     if (candidates.length > 1) throw new Error('发现多个下一题按钮');
     return candidates[0];
   }
@@ -414,11 +454,13 @@
       if (/\/exam(?:-ans)?\//i.test(location.pathname)) throw new Error('考试页面不属于作业适配范围');
       if (!settings.apiKey || !settings.model) throw new Error('请配置 API Key 和模型');
       if (settings.autoSubmit && (!Number.isInteger(settings.expectedTotal) || settings.expectedTotal < 1)) throw new Error('自动提交需要填写作业总题数');
+      const questionDocument = await findQuestionDocument(token);
       const seen = new Map();
       const pages = new Set();
       while (true) {
         assertRunning(token);
-        const current = roots();
+        if (!frameDocuments().documents.includes(questionDocument)) throw new Error('作业页面已切换，请重新开始');
+        const current = rootsIn(questionDocument);
         if (!current.length) throw new Error('当前页面未识别到作业题目');
         const questions = current.map(parseQuestion);
         const pageKey = questions.map(q => q.signature).join('|');
@@ -450,6 +492,7 @@
             { role: 'user', content: userContent }
           ]);
           assertRunning(token);
+          if (!frameDocuments().documents.includes(questionDocument)) throw new Error('作业页面已切换，请重新开始');
           if (!q.root.isConnected) throw new Error('答题过程中页面发生变化');
           const currentQuestion = parseQuestion(q.root);
           if (currentQuestion.signature !== q.signature) throw new Error('答题过程中页面发生变化');
@@ -472,14 +515,15 @@
           if (settings.delayMs) await wait(settings.delayMs);
         }
         assertRunning(token);
-        const next = settings.autoNext && nextButton();
+        const next = settings.autoNext && nextButton(questionDocument);
         if (next) {
           next.click();
           let changed = false;
           for (let i = 0; i < 150; i++) {
             await wait(100);
             assertRunning(token);
-            const newRoots = roots();
+            if (!frameDocuments().documents.includes(questionDocument)) throw new Error('作业页面已刷新，请重新开始');
+            const newRoots = rootsIn(questionDocument);
             try { changed = !!newRoots.length && newRoots.map(parseQuestion).map(q => q.signature).join('|') !== pageKey; } catch { changed = false; }
             if (changed) break;
           }
@@ -489,13 +533,13 @@
         if (settings.autoSubmit) {
           if (seen.size !== settings.expectedTotal || [...seen.keys()].some(k => typeof k !== 'number') || Array.from({ length: settings.expectedTotal }, (_, i) => i + 1).some(n => !seen.has(n))) throw new Error('题号或总题数不完整，未提交');
           if (questions.some(q => !seen.get(q.number)?.verify())) throw new Error('当前页面答案发生变化，未提交');
-          const buttons = usableButtons(/^(提交|提交作业)$/);
+          const buttons = usableButtons(/^(提交|提交作业)$/, questionDocument);
           if (buttons.length !== 1) throw new Error('未找到唯一的提交按钮');
           buttons[0].click();
           for (let i = 0; i < 8; i++) {
             await wait(100);
             assertRunning(token);
-            const dialogs = [...document.querySelectorAll('[role="dialog"], .layui-layer-dialog, #submitConfirm')].filter(visible).filter(el => /提交/.test(clean(el.textContent)));
+            const dialogs = [...questionDocument.querySelectorAll('[role="dialog"], .layui-layer-dialog, #submitConfirm')].filter(visible).filter(el => /提交/.test(clean(el.textContent)));
             const confirmations = dialogs.flatMap(dialog => [...dialog.querySelectorAll('button, a, input[type="button"]')].filter(el => visible(el) && !el.disabled && /^(确定|确认提交|确认)$/.test(clean(el.value || el.textContent))));
             if (confirmations.length > 1) throw new Error('发现多个提交确认按钮，请手动处理');
             if (confirmations.length === 1) { confirmations[0].click(); break; }
@@ -519,15 +563,23 @@
     setStatus('手动暂停');
   }
 
-  function diagnostic() {
-    const candidates = [...document.querySelectorAll('.TiMu, .questionLi')].filter(visible);
+  function diagnosticReport() {
+    const { documents, frames } = frameDocuments();
+    const candidates = documents.flatMap(doc => [...doc.querySelectorAll('.TiMu, .questionLi')].filter(visible));
     const questionRoots = roots();
-    const report = { page: location.origin + location.pathname, title: document.title, questionCount: questionRoots.length,
+    return { page: location.origin + location.pathname, title: document.title, questionCount: questionRoots.length,
+      documentCount: documents.length, frames,
+      documents: documents.map(doc => ({ page: doc.location.origin + doc.location.pathname, questionCount: rootsIn(doc).length })),
       candidateCount: candidates.length, excludedContainerCount: candidates.length - questionRoots.length,
       questions: questionRoots.map(root => ({ className: root.className, hasTitle: !!root.querySelector('.Zy_TItle, .mark_name'),
         controls: root.querySelectorAll('input, textarea, [contenteditable]').length,
-        choiceElements: root.querySelectorAll('input[type="radio"], input[type="checkbox"], .answerBg .answer_p').length,
+        choiceElements: root.querySelectorAll('input[type="radio"], input[type="checkbox"], .answerBg .answer_p, .Zy_ulTop > li .after').length,
+        encryptedFont: root.matches('.font-cxsecret') || !!root.querySelector('.font-cxsecret'),
         hasTypeInput: !!root.querySelector('input[id^="answertype"]') })) };
+  }
+
+  function diagnostic() {
+    const report = diagnosticReport();
     const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a');
     link.href = url;
@@ -538,7 +590,7 @@
 
   function mount() {
     if (document.getElementById('cxds-panel') || !document.body) return;
-    if (!roots().length && !/work|homework/i.test(location.pathname)) return;
+    if (!roots().length && !/work|homework|studentstudy|knowledge\/cards/i.test(location.pathname)) return;
     const host = document.createElement('div');
     host.id = 'cxds-panel';
     document.body.append(host);
