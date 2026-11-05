@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.5.2
+// @version      0.5.3
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
@@ -547,6 +547,115 @@
     return content;
   }
 
+  function pageWindow(doc) {
+    try {
+      const path = [];
+      let view = doc.defaultView;
+      while (view !== window) {
+        const parent = view.parent;
+        if (parent === view) return doc.defaultView;
+        const index = Array.from({ length: parent.frames.length }, (_, index) => parent.frames[index]).indexOf(view);
+        if (index < 0) return doc.defaultView;
+        path.unshift(index);
+        view = parent;
+      }
+      let target = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
+      for (const index of path) target = target.frames[index];
+      return target;
+    } catch { return doc.defaultView; }
+  }
+
+  function textTargets(root) {
+    const fields = [], stats = { frames: 0, accessibleFrames: 0, blockedFrames: 0, pendingEditors: 0, readonlyEditors: 0 };
+    const visit = (container, frames = []) => {
+      let editors = [];
+      try { editors = Object.values(pageWindow(container.ownerDocument || container).UE?.instants || {}); } catch { /* Unavailable page API. */ }
+      const selector = 'textarea, input[type="text"], input:not([type]), [contenteditable="true"], [contenteditable="plaintext-only"]';
+      const nodes = [...container.querySelectorAll(selector)];
+      if (container.nodeType === 1 && (container.isContentEditable || container.ownerDocument.designMode.toLowerCase() === 'on')) nodes.unshift(container);
+      const outer = nodes.filter(el => visible(el) && editable(el) && !el.readOnly
+        && !el.closest('[role="toolbar"], .edui-editor-toolbarbox, .tox-editor-header, .cke_top, .ck-toolbar')
+        && !nodes.some(parent => parent !== el && parent.contains(el) && parent.isContentEditable));
+      for (const element of outer) fields.push({ element, frames, anchor: frames[0] || element, kind: element.isContentEditable || element === container ? frames.length ? 'iframe-text' : 'contenteditable' : 'native-text' });
+      for (const frame of container.querySelectorAll('iframe, frame')) {
+        if (!visible(frame)) continue;
+        stats.frames++;
+        let doc;
+        try { doc = frame.contentDocument; if (doc) void doc.location.href; } catch { /* Cross origin. */ }
+        if (!doc) { stats.blockedFrames++; continue; }
+        stats.accessibleFrames++;
+        const editor = editors.find(instance => instance.iframe === frame);
+        if (editor) {
+          if (!editor.body || !editor.isReady || typeof editor.setContent !== 'function' || typeof editor.getContent !== 'function' || typeof editor.sync !== 'function') { stats.pendingEditors++; continue; }
+          if (!editable(frame) || !editor.body.isContentEditable) { stats.readonlyEditors++; continue; }
+          fields.push({ element: editor.body, frames: [...frames, frame], anchor: frames[0] || frame, editor, kind: 'ueditor' });
+        } else if (frame.closest('.edui-editor')) {
+          stats.pendingEditors++;
+        } else if (doc.body && frames.length < 4 && editable(frame)) visit(doc.body, [...frames, frame]);
+      }
+    };
+    visit(root);
+    fields.sort((a, b) => {
+      const left = a.anchor === b.anchor ? a.element : a.anchor;
+      const right = a.anchor === b.anchor ? b.element : b.anchor;
+      return left === right ? 0 : left.compareDocumentPosition(right) & 4 ? -1 : 1;
+    });
+    return { fields, ...stats, kinds: fields.map(field => field.kind) };
+  }
+
+  function textTargetConnected(target, root) {
+    if (!root.isConnected || !target.element.isConnected) return false;
+    let container = root;
+    for (const frame of target.frames) {
+      if (!container.contains(frame) || !frame.isConnected) return false;
+      try { container = frame.contentDocument; } catch { return false; }
+      if (!container) return false;
+    }
+    return container.contains(target.element) && editable(target.element) && !target.element.readOnly;
+  }
+
+  const textHtml = value => '<p>' + value.replace(/\r\n?/g, '\n').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') + '</p>';
+  const equivalentText = (left, right) => clean(left).replace(/[\u200b\ufeff]/g, '') === clean(right).replace(/[\u200b\ufeff]/g, '');
+
+  function htmlText(html, doc) {
+    const node = doc.createElement('div');
+    node.innerHTML = html;
+    for (const element of node.querySelectorAll('br, p, div, li')) element.append(doc.createTextNode('\n'));
+    return node.textContent;
+  }
+
+  function editorBacking(target) {
+    const editor = target.editor;
+    if (editor.textarea?.nodeType === 1) return editor.textarea;
+    const name = typeof editor.textarea === 'string' ? editor.textarea : editor.options?.textarea;
+    return [...target.anchor.ownerDocument.querySelectorAll('textarea')].find(input => input.id === 'ueditor_textarea_' + name || input.name === name);
+  }
+
+  function fillText(target, answer) {
+    const input = target.element;
+    const view = input.ownerDocument.defaultView;
+    if (target.editor) target.editor.setContent(textHtml(answer));
+    else if (target.kind === 'native-text') {
+      const prototype = input.tagName === 'TEXTAREA' ? view.HTMLTextAreaElement.prototype : view.HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+      if (setter) setter.call(input, answer); else input.value = answer;
+    } else input.innerHTML = textHtml(answer);
+    input.dispatchEvent(new view.Event('input', { bubbles: true }));
+    input.dispatchEvent(new view.Event('change', { bubbles: true }));
+    if (target.editor) target.editor.sync();
+  }
+
+  function textMatches(target, answer, root) {
+    if (!textTargetConnected(target, root)) return false;
+    const value = target.kind === 'native-text' ? target.element.value : target.element.innerText || target.element.textContent;
+    if (!equivalentText(value, answer)) return false;
+    if (!target.editor) return true;
+    if (!equivalentText(htmlText(target.editor.getContent(), target.element.ownerDocument), answer)) return false;
+    const backing = editorBacking(target);
+    if (target.anchor.closest('form') && !backing) return false;
+    return !backing || backing.isConnected && equivalentText(htmlText(backing.value, backing.ownerDocument), answer);
+  }
+
   function parseQuestion(root) {
     const title = root.querySelector(TITLE_SELECTOR);
     if (!title) throw pageIssue('题干尚未加载');
@@ -573,7 +682,7 @@
     else if (/多选/.test(stem)) type = 'multiple';
     else if (/单选/.test(stem)) type = 'single';
     else if (/判断/.test(stem)) type = 'judge';
-    else if (/填空|简答|论述|问答/.test(stem)) type = 'text';
+    else if (/填空|简答|论述|问答|(?:计算|证明|解答)题/.test(stem)) type = 'text';
     else if (root.querySelector('input[type="checkbox"], [role="checkbox"]')) type = 'multiple';
     else if (root.querySelector('input[type="radio"], [role="radio"]')) type = 'single';
     else if (root.querySelector('textarea, [contenteditable="true"]')) type = 'text';
@@ -585,8 +694,13 @@
     let inputs = [];
     let adapter = 'text';
     if (type === 'text') {
-      inputs = [...root.querySelectorAll('textarea, input[type="text"], input:not([type]), [contenteditable="true"]')].filter(el => visible(el) && !el.disabled && !el.readOnly);
-      if (!inputs.length) throw pageIssue('找不到可编辑的答题框');
+      const found = textTargets(root);
+      if (found.readonlyEditors) throw new Error('答题编辑器处于只读状态');
+      if (found.pendingEditors) throw pageIssue('富文本答题编辑器尚未就绪');
+      if (found.blockedFrames && !found.fields.length) throw new Error('无法访问答题编辑器 iframe，请单独打开答题页');
+      inputs = found.fields;
+      if (!inputs.length) throw pageIssue('找不到可编辑的答题框，编辑区可能尚未加载');
+      adapter = new Set(found.kinds).size === 1 ? found.kinds[0] : 'mixed-text';
     } else {
       const found = optionNodes(root);
       adapter = found.adapter;
@@ -604,7 +718,7 @@
       if (choices.every(c => c.disabled)) throw new Error('选项不可编辑，请确认作业处于作答状态');
     }
     if (images.length > MAX_IMAGES) throw new Error('单题图片超过数量限制，请手动处理');
-    return { root, title, stem, type, number, id, choices, inputs, images, visual, adapter, signature: JSON.stringify([id, number, stem, type, visual, adapter, inputs.length, choices.map(c => [c.key, c.text, c.disabled]), images]) };
+    return { root, title, stem, type, number, id, choices, inputs, images, visual, adapter, signature: JSON.stringify([id, number, stem, type, visual, adapter, inputs.map(input => [input.kind, input.anchor.id, input.element.tagName]), choices.map(c => [c.key, c.text, c.disabled]), images]) };
   }
 
   function selected(choice) {
@@ -643,15 +757,11 @@
     if (result.needs_review === true) throw new Error('模型要求人工检查');
     if (question.type === 'text') {
       if (result.answers.length !== question.inputs.length) throw new Error('答案数量与填空数量不一致');
+      if (question.inputs.some(input => !textTargetConnected(input, question.root))) throw new Error('答题编辑器已切换或不可编辑');
       for (let i = 0; i < question.inputs.length; i++) {
-        const input = question.inputs[i];
-        if (input.isContentEditable) input.textContent = result.answers[i];
-        else input.value = result.answers[i];
-        const InputEvent = input.ownerDocument.defaultView.Event;
-        input.dispatchEvent(new InputEvent('input', { bubbles: true }));
-        input.dispatchEvent(new InputEvent('change', { bubbles: true }));
+        fillText(question.inputs[i], result.answers[i]);
       }
-      return () => question.root.isConnected && question.inputs.every((input, i) => input.isConnected && question.root.contains(input) && (input.isContentEditable ? input.textContent : input.value) === result.answers[i]);
+      return () => question.inputs.every((input, i) => textMatches(input, result.answers[i], question.root));
     }
     const targets = result.answers.map(answer => resolveChoice(question, answer));
     if (new Set(targets).size !== targets.length || (question.type !== 'multiple' && targets.length !== 1)) throw new Error('选项数量不正确');
@@ -762,12 +872,13 @@
           assertRunning(token);
           setStatus('正在请求第 ' + (q.number || seen.size + 1) + ' 题');
           const result = await completion([
-            { role: 'system', content: '解答当前题目。仅输出 JSON 对象，格式 {"answers":["A"],"needs_review":false,"reason":"简短依据"}。选择题 answers 用选项字母，多选每个字母单独一项。填空或简答按顺序给出每个文本框答案。题干或选项标记见图片时，读取相应截图中的文字与公式；不要猜测不清晰的字。信息不足或无法判断时 needs_review 为 true。' },
+            { role: 'system', content: '解答当前题目。仅输出 JSON 对象，格式 {"answers":["A"],"needs_review":false,"reason":"简短依据"}。选择题 answers 用选项字母，多选每个字母单独一项。填空按空次给出文本答案。简答、论述、计算题的 answers 必须包含可直接填入文本框的完整答案及必要计算、推导步骤，不能只把步骤写在 reason 中。文本答案使用纯文本和必要换行，不含 HTML 或 Markdown 代码围栏。题干或选项标记见图片时，读取相应截图中的文字与公式；不要猜测不清晰的字。信息不足或无法判断时 needs_review 为 true。' },
             { role: 'user', content: userContent }
           ]);
           assertRunning(token);
           if (!frameDocuments().documents.includes(questionDocument)) throw new Error('作业页面已切换，请重新开始');
           if (!q.root.isConnected) throw new Error('答题过程中页面发生变化');
+          if (q.type === 'text' && q.inputs.some(input => !textTargetConnected(input, q.root))) throw new Error('请求期间答题编辑器已切换或不可编辑');
           const currentQuestion = parseQuestion(q.root);
           if (currentQuestion.signature !== q.signature) throw new Error('答题过程中页面发生变化');
           const verify = fill(currentQuestion, result);
@@ -860,7 +971,7 @@
     const { documents, frames } = frameDocuments();
     const candidates = documents.flatMap(doc => [...doc.querySelectorAll(ROOT_SELECTOR)].filter(el => visible(el) && el.querySelector(TITLE_SELECTOR)));
     const questionRoots = roots();
-    return { version: '0.5.2', autoNext: settings.autoNext, running,
+    return { version: '0.5.3', autoNext: settings.autoNext, running,
       page: location.origin + location.pathname, title: document.title, questionCount: questionRoots.length,
       documentCount: documents.length, frames,
       documents: documents.map(doc => {
@@ -877,9 +988,13 @@
           choiceElements: options.choices.length, adapter: options.adapter,
           encryptedFont: root.matches('.font-cxsecret') || !!root.querySelector('.font-cxsecret'),
           hasTypeInput: [...root.querySelectorAll('input')].some(input => /^answertype/.test(input.id) || /^type\d+$/.test(input.name)) };
+        const { fields, ...textControls } = textTargets(root);
+        details.textControls = { ...textControls, fieldCount: fields.length };
         try {
           const question = parseQuestion(root);
           details.type = question.type;
+          details.adapter = question.adapter;
+          details.textFieldCount = question.inputs.length;
           details.optionKeys = question.choices.map(choice => choice.key);
         } catch (error) { details.parseError = error.message; }
         return details;

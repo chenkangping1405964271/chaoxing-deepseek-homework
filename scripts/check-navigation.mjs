@@ -115,7 +115,7 @@ try {
   assert.equal((await Promise.all(test.page.frames().map(frame => frame.locator('#cxds-panel').count()))).reduce((a, b) => a + b, 0), 1);
   checks.push('surviving course wrapper reacquires the replaced question iframe and keeps a single controller');
   const diagnostic = await test.page.evaluate(() => window.__navigationTest.diagnosticReport());
-  assert.equal(diagnostic.version, '0.5.2');
+  assert.equal(diagnostic.version, '0.5.3');
   assert.equal(diagnostic.autoNext, true);
   assert.equal(diagnostic.documents.find(doc => doc.questionCount).nextAvailable, false);
   checks.push('diagnostics include script version, auto-next state and scoped next-button availability');

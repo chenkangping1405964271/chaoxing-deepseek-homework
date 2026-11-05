@@ -1,0 +1,21 @@
+{
+  "result": "PASS",
+  "checks": [
+    "native short-answer textarea still fills",
+    "calculation steps, inequality symbols and line breaks fill a same-origin rich-text iframe using its own events",
+    "UEditor instance setContent and sync update the hidden backing field; diagnostics expose counts without answer text or key",
+    "multiple UEditor blanks follow document order and do not count hidden backing fields twice",
+    "mixed native and iframe text blanks retain their document order",
+    "nested editable nodes produce one answer field and toolbar inputs are excluded",
+    "designMode iframe and calculation-title type inference are supported",
+    "late UEditor readiness is awaited in a nested course frame before requesting an answer",
+    "read-only rich-text editors pause before a model request",
+    "visual/editor content without a synchronized backing field cannot proceed to next question",
+    "model uncertainty leaves the editor unchanged",
+    "editor document replacement during a model request prevents stale text writes",
+    "wrong answer count prevents partial mutations across multiple blanks",
+    "model text is escaped before rich-text insertion; HTML-like answers remain literal"
+  ],
+  "browserErrors": [],
+  "limits": "Fictional native/contenteditable/iframe fixtures and UEditor API fixtures; model requests mocked locally. No live page or server-save verification."
+}
