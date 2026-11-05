@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.5.3
+// @version      0.5.4
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
@@ -435,6 +435,110 @@
     }
   }
 
+  function svgFormula(svg) {
+    const doc = svg.ownerDocument, view = doc.defaultView;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) throw pageIssue('SVG 公式尚未显示，请等待加载');
+    if (rect.width > 4096 || rect.height > 4096 || rect.width * rect.height > 4 * 1024 * 1024) throw new Error('SVG 公式尺寸过大');
+    const namespace = 'http://www.w3.org/2000/svg';
+    const tags = new Set(['svg', 'g', 'defs', 'path', 'use', 'rect', 'line', 'polyline', 'polygon', 'circle', 'ellipse', 'text', 'tspan', 'symbol', 'clippath']);
+    const attributes = new Set(['id', 'd', 'transform', 'viewbox', 'preserveaspectratio', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'width', 'height', 'points', 'dx', 'dy', 'fill', 'stroke', 'stroke-width', 'fill-rule', 'clip-rule', 'stroke-linecap', 'stroke-linejoin', 'stroke-dasharray', 'opacity', 'fill-opacity', 'stroke-opacity', 'font-family', 'font-size', 'font-style', 'font-weight', 'text-anchor', 'dominant-baseline']);
+    const styleNames = ['fill', 'stroke', 'stroke-width', 'fill-rule', 'opacity', 'fill-opacity', 'stroke-opacity', 'font-family', 'font-size', 'font-style', 'font-weight', 'text-anchor'];
+    let nodes = 0;
+    const clone = element => {
+      if (++nodes > 4000) throw new Error('SVG 公式结构过大');
+      if (element.namespaceURI !== namespace || !tags.has(element.localName.toLowerCase())) throw new Error('SVG 公式包含不支持的元素');
+      const copy = doc.createElementNS(namespace, element.localName);
+      for (const attribute of element.attributes) {
+        const name = attribute.localName.toLowerCase();
+        if (name === 'href') {
+          const href = element.getAttribute('href') || element.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+          if (!/^#[^\s#]+$/.test(href)) throw new Error('SVG 公式引用了外部资源');
+          copy.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', href);
+        } else if (name === 'clip-path') {
+          if (!/^url\(#[^\s)]+\)$/.test(attribute.value)) throw new Error('SVG 公式引用了外部资源');
+          copy.setAttribute('clip-path', attribute.value);
+        } else if (attributes.has(name)) {
+          if (/url\s*\(|javascript:/i.test(attribute.value)) throw new Error('SVG 公式引用了外部资源');
+          copy.setAttribute(attribute.name, attribute.value);
+        }
+      }
+      // Referenced glyphs inherit color from each <use>; freezing a hidden defs
+      // element's computed paint would override that context (or erase a glyph).
+      const definition = element !== svg && element.closest('defs, symbol');
+      const style = definition ? element.style : view.getComputedStyle(element);
+      for (const name of styleNames) {
+        const value = style.getPropertyValue(name);
+        if (/url\s*\(/i.test(value)) throw new Error('SVG 公式引用了外部资源');
+        if (value) copy.style.setProperty(name, value);
+      }
+      if (style.color) copy.style.color = style.color;
+      for (const child of element.childNodes) {
+        if (child.nodeType === 1) copy.append(clone(child));
+        else if (child.nodeType === 3) copy.append(doc.createTextNode(child.data));
+      }
+      return copy;
+    };
+    const result = clone(svg);
+    const definitions = doc.createElementNS(namespace, 'defs');
+    result.prepend(definitions);
+    const local = id => [...result.querySelectorAll('[id]')].find(element => element.id === id) || (result.id === id ? result : null);
+    const resolved = new Set();
+    let visits = 0;
+    const resolve = (element, chain = []) => {
+      if (resolved.has(element)) return;
+      if (++visits > 10000) throw new Error('SVG 公式引用结构过大');
+      if (chain.length > 32) throw new Error('SVG 公式引用层数过多');
+      const references = [];
+      const href = element.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+      if (href) references.push(href.slice(1));
+      const clip = element.getAttribute('clip-path')?.match(/^url\(#(.+)\)$/)?.[1];
+      if (clip) references.push(clip);
+      for (const id of references) {
+        if (chain.includes(id)) throw new Error('SVG 公式存在循环引用');
+        let target = local(id);
+        if (!target) {
+          const original = doc.getElementById(id);
+          if (!original) throw pageIssue('SVG 公式字形尚未加载');
+          target = clone(original);
+          definitions.append(target);
+        }
+        resolve(target, [...chain, id]);
+      }
+      for (const child of element.children) resolve(child, chain);
+      resolved.add(element);
+    };
+    resolve(result);
+    result.setAttribute('xmlns', namespace);
+    result.setAttribute('width', String(Math.ceil(rect.width)));
+    result.setAttribute('height', String(Math.ceil(rect.height)));
+    const source = new view.XMLSerializer().serializeToString(result);
+    if (source.length > 1024 * 1024) throw new Error('SVG 公式内容过大');
+    return { source, width: Math.ceil(rect.width), height: Math.ceil(rect.height) };
+  }
+
+  async function renderSvgFormula(formula, token, doc) {
+    const view = doc.defaultView;
+    const image = new view.Image();
+    const url = view.URL.createObjectURL(new view.Blob([formula.source], { type: 'image/svg+xml;charset=utf-8' }));
+    try {
+      image.src = url;
+      await waitForMedia(image.decode(), token, 'SVG 公式解码');
+      assertRunning(token);
+      const canvas = doc.createElement('canvas');
+      const scale = Math.min(2, 4096 / Math.max(formula.width, formula.height));
+      canvas.width = Math.ceil(formula.width * scale);
+      canvas.height = Math.ceil(formula.height * scale);
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('浏览器无法绘制 SVG 公式');
+      context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const data = canvas.toDataURL('image/png');
+      if (data.length > 12 * 1024 * 1024) throw new Error('SVG 公式图片内容过大');
+      return data;
+    } finally { view.URL.revokeObjectURL(url); }
+  }
+
   // Draw only the requested title/option, using its own document's loaded font glyphs.
   // Encoded text stays local. Images are read into data URLs before drawing to avoid a tainted canvas.
   async function renderQuestionFragment(element, token) {
@@ -444,7 +548,7 @@
     const nodes = [];
     while (walker.nextNode()) {
       const node = walker.currentNode;
-      if (node.data.trim() && visible(node.parentElement) && !node.parentElement.closest('script, style, textarea, [contenteditable="true"]')) nodes.push(node);
+      if (node.data.trim() && visible(node.parentElement) && !node.parentElement.closest('script, style, svg, textarea, [contenteditable="true"]')) nodes.push(node);
     }
     if (nodes.reduce((sum, node) => sum + node.data.length, 0) > 20000) throw new Error('题目文字过长，请手动处理');
     const fonts = new Map();
@@ -460,15 +564,16 @@
       if (!loaded.some(face => /font-cxsecret/.test(face.family) && face.status === 'loaded')) throw new Error('加密字体尚未加载，请刷新作业页');
     }
     const pictures = [];
-    for (const image of [...element.querySelectorAll('img')].filter(visible)) {
+    for (const image of [...element.querySelectorAll('img, svg')].filter(image => visible(image) && !image.parentElement.closest('svg'))) {
       if (pictures.length >= MAX_IMAGES) throw new Error('单个题干或选项图片超过数量限制');
-      const data = await readImage(imageSource(image));
+      const vector = image.localName === 'svg';
+      const data = vector ? await renderSvgFormula(svgFormula(image), token, doc) : await readImage(imageSource(image));
       assertRunning(token);
       const decoded = new view.Image();
       decoded.src = data;
       await waitForMedia(decoded.decode(), token, '题目图片解码');
       // Lazy images must have layout dimensions before we capture character positions.
-      if (!image.complete || !image.naturalWidth) await waitForMedia(image.decode(), token, '页面题目图片加载');
+      if (!vector && (!image.complete || !image.naturalWidth)) await waitForMedia(image.decode(), token, '页面题目图片加载');
       pictures.push({ element: image, image: decoded });
     }
     assertRunning(token);
@@ -537,7 +642,7 @@
     if (question.visual) setStatus('正在读取第 ' + (question.number || '') + ' 题的加密字体图片');
     for (const part of parts) {
       assertRunning(token);
-      const url = part.element ? await renderQuestionFragment(part.element, token) : await readImage(part.src);
+      const url = part.formula ? await renderSvgFormula(part.formula, token, question.root.ownerDocument) : part.element ? await renderQuestionFragment(part.element, token) : await readImage(part.src);
       assertRunning(token);
       if (!frameDocuments().documents.includes(question.root.ownerDocument) || !question.root.isConnected || parseQuestion(question.root).signature !== question.signature) throw new Error('答题过程中页面发生变化');
       contentLength += url.length + part.label.length + 128;
@@ -660,12 +765,14 @@
     const title = root.querySelector(TITLE_SELECTOR);
     if (!title) throw pageIssue('题干尚未加载');
     const visual = !!root.querySelector('.font-cxsecret') || root.classList.contains('font-cxsecret');
-    if (title.querySelector('video, audio, canvas, svg')) throw new Error('题干含不支持的媒体');
+    if ([...title.querySelectorAll('video, audio, canvas')].some(visible)) throw new Error('题干含不支持的媒体');
     const images = [];
     const collectImages = (element, label) => {
-      const found = [...element.querySelectorAll('img')].filter(visible);
+      const found = [...element.querySelectorAll('img, svg')].filter(image => visible(image) && !image.parentElement.closest('svg'));
       found.forEach((image, index) => {
-        images.push({ label: label + '图片' + (index + 1), src: imageSource(image) });
+        images.push(image.localName === 'svg'
+          ? { label: label + '公式' + (index + 1), formula: svgFormula(image) }
+          : { label: label + '图片' + (index + 1), src: imageSource(image) });
       });
       return found.length;
     };
@@ -705,7 +812,7 @@
       const found = optionNodes(root);
       adapter = found.adapter;
       choices = found.choices.map((choice, index) => {
-        if (choice.textElement.querySelector('canvas, video, audio, svg')) throw new Error('选项含不支持的媒体');
+        if ([...choice.textElement.querySelectorAll('canvas, video, audio')].some(visible)) throw new Error('选项含不支持的媒体');
         if (choice.container === root || found.choices.some(other => other !== choice && other.container === choice.container)) throw new Error('无法定位每个选项的独立容器');
         const key = choiceKey(choice, index);
         const imageCount = collectImages(choice.textElement, '选项' + key.key);
@@ -971,7 +1078,7 @@
     const { documents, frames } = frameDocuments();
     const candidates = documents.flatMap(doc => [...doc.querySelectorAll(ROOT_SELECTOR)].filter(el => visible(el) && el.querySelector(TITLE_SELECTOR)));
     const questionRoots = roots();
-    return { version: '0.5.3', autoNext: settings.autoNext, running,
+    return { version: '0.5.4', autoNext: settings.autoNext, running,
       page: location.origin + location.pathname, title: document.title, questionCount: questionRoots.length,
       documentCount: documents.length, frames,
       documents: documents.map(doc => {
@@ -986,6 +1093,7 @@
         const details = { className: root.className, hasTitle: !!root.querySelector(TITLE_SELECTOR),
           controls: root.querySelectorAll('input, textarea, [contenteditable]').length,
           choiceElements: options.choices.length, adapter: options.adapter,
+          svgElementCount: [...root.querySelectorAll('svg')].filter(visible).length,
           encryptedFont: root.matches('.font-cxsecret') || !!root.querySelector('.font-cxsecret'),
           hasTypeInput: [...root.querySelectorAll('input')].some(input => /^answertype/.test(input.id) || /^type\d+$/.test(input.name)) };
         const { fields, ...textControls } = textTargets(root);
@@ -993,6 +1101,7 @@
         try {
           const question = parseQuestion(root);
           details.type = question.type;
+          details.svgFormulaCount = question.images.filter(image => image.formula).length;
           details.adapter = question.adapter;
           details.textFieldCount = question.inputs.length;
           details.optionKeys = question.choices.map(choice => choice.key);

@@ -1,0 +1,20 @@
+{
+  "result": "PASS",
+  "checks": [
+    "pure SVG options with local glyph definitions, negative viewBox and inherited color become non-empty PNG inputs with correct labels",
+    "global same-document glyph definitions are copied only when referenced by a formula",
+    "title and option SVG formulas share the existing image request path",
+    "encoded-font fragment rendering retains SVG formula pixels without sending encoded source text",
+    "inline SVG text formulas are rasterized without duplicate fragment text drawing",
+    "a late same-document glyph definition is awaited before requesting",
+    "external SVG references pause before a model request or external image read",
+    "SVG foreign content remains unsupported instead of being silently omitted",
+    "cyclic SVG references stop before rendering",
+    "SVG formulas require an image-capable model",
+    "pause interrupts formula decoding without a later model request",
+    "unsupported canvas/media still pause explicitly",
+    "formula changes while requesting prevent stale-answer writes"
+  ],
+  "browserErrors": [],
+  "limits": "Fictional inline SVG, glyph, font and media fixtures; model requests mocked locally; no real course content or paid API."
+}
