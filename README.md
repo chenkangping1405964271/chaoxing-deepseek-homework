@@ -9,7 +9,7 @@
 
 ---
 
-带有 DeepSeek 娘主题界面的学习通普通课程作业浏览器助手，使用 DeepSeek API 请求参考答案，尝试识别题目、填答和翻页。**自动提交默认关闭，答案需要核对。**
+带有 DeepSeek 娘主题界面的学习通课程作业及考试答题页浏览器助手，使用 DeepSeek API 请求参考答案，尝试识别题目、填答和翻页。**作业自动提交默认关闭；考试页始终需要核对后手动交卷。**
 
 本项目非超星或 DeepSeek 官方产品；当前是浏览器油猴脚本，不能直接在学习通官方安卓 App 中运行。
 
@@ -21,7 +21,7 @@
 
 1. 在浏览器安装并启用 Tampermonkey，按浏览器提示授予运行用户脚本的权限。
 2. 打开仓库中的 [`dist/chaoxing-deepseek-homework.user.js`](dist/chaoxing-deepseek-homework.user.js)，选择 **Raw** 安装；也可以把文件内容复制到油猴的新脚本中保存。
-3. 进入可编辑的学习通普通课程作业页面，刷新后找到助手面板。
+3. 进入可编辑的学习通作业或考试答题页面，刷新后找到助手面板。考试入口页尚未加载题目时，需要先进入实际答题界面。
 4. 输入自己的 DeepSeek API Key 并保存，读取模型并测试连接。密钥需要从 API 服务商获取，不能用网页版登录状态替代。
 5. 核对作业设置后运行。建议初次使用保持自动提交关闭，并检查答案和保存状态。
 
@@ -33,6 +33,7 @@
 - 统一的选项适配层覆盖旧版 `.Zy_ulTop`、新版 `.answerBg`、原生 radio/checkbox 与关联 label、ARIA radio/checkbox、带 `data-option` 或常见选项类名的控件；题目也可按题目标识和标题结构识别，不绑定课程或题号。
 - 按实际显示状态识别选项，正确区分读屏用的 [`aria-hidden`](https://design-system.w3.org/styles/how-to-hide-and-show-things.html) 和视觉隐藏；排除 CSS/HTML 隐藏副本。优先使用页面真实选项字母，多选会清理旧选项并回读完整选中集合；旧版提供答案隐藏字段时也会核对其值。
 - 支持课程学习页面中多层同源 iframe 内的作业；只显示一个助手面板，翻页和提交限定在识别到的作业内。题目加载时最多等待 10 秒。
+- v0.5.1 补上 `/exam/`、`/exam-ans/` 考试路径入口、`type题号` 题型字段和 `.answerBg` 答案存储回读。考试嵌在同源 iframe 内时也参与识别；自动提交会禁用，原先保存的作业提交偏好不会被清除。考试页无需填写作业总题数。
 - 题型、选项延后渲染时最多等待 10 秒；只读控件、重复字母或无法区分的可见副本会给出具体原因。
 - 图片题需要 API 模型实际支持图像输入，脚本会把题干、选项及读取的图片发送给 API 服务商。
 - 支持纯图片选项和 `data-original` / `data-src` 懒加载图片；超星 HTTP 图片地址会转成 HTTPS 读取。单题源图片上限调整为 64 张，保留单图和请求大小校验。
@@ -65,6 +66,7 @@ npm run check-ui
 npm run check-frames
 npm run check-fonts
 npm run check-adapters
+npm run check-exams
 ```
 
 构建产物为 `dist/chaoxing-deepseek-homework.user.js`。`src/homework.template.js` 是脚本模板，`src/panel.html` 是界面，`scripts/build-ui.mjs` 将素材和界面打包为单个用户脚本。
@@ -78,6 +80,8 @@ npm run check-adapters
 加密字体检查使用自行绘制的几何字形测试字体，核对字体来自题目所在 iframe、绘制像素与浏览器显示一致、内嵌公式保留、暂停和缺失字体处理，以及请求中不夹带乱码或题目外内容。报告见 [`preview/加密字体检查.json`](preview/加密字体检查.json)。测试字体及可选重建脚本位于 `scripts/fixtures/`，不包含真实课程字体。
 
 通用适配检查包含 20 种虚构结构与行为场景，覆盖单选、多选、判断题共用的选项层、乱序字母、纯图片、懒加载、隐藏副本、只读控件、延后渲染和答案存储字段校验，报告见 [`preview/通用适配检查.json`](preview/通用适配检查.json)。这些检查不代表所有未见过的页面都已验证；富文本 iframe 等尚未适配的情况仍按上述限制处理。
+
+考试适配检查包含 11 组虚构场景，覆盖直接入口、同源 iframe、延后加载、单选、多选、判断、填空、简答、局部替换翻页、答案存储回读及手动暂停。报告见 [`preview/考试适配检查.json`](preview/考试适配检查.json)。使用模拟 API，未验证真实账号、付费模型或服务器保存；完整刷新式翻页仍可能中断运行。
 
 ## 致谢
 

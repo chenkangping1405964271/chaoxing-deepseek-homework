@@ -67,7 +67,7 @@ async function setup(work, extras = '', options = {}) {
 }
 
 try {
-  let test = await setup(Array.from({ length: 10 }, (_, i) => legacy(i + 1, true)).join(''), '<iframe hidden src="/hidden"></iframe><iframe src="/exam/test"></iframe><iframe src="https://other.chaoxing.com/quiz?private=DO_NOT_EXPORT"></iframe>');
+  let test = await setup(Array.from({ length: 10 }, (_, i) => legacy(i + 1, true)).join(''), '<iframe hidden src="/hidden"></iframe><iframe hidden src="/exam/test"></iframe><iframe src="https://other.chaoxing.com/quiz?private=DO_NOT_EXPORT"></iframe>');
   const report = await test.page.evaluate(() => window.__cxdsFrameTest.diagnosticReport());
   assert.equal(report.questionCount, 10);
   assert.equal(report.documentCount, 4);
@@ -81,7 +81,7 @@ try {
   await test.page.evaluate(() => window.__cxdsFrameTest.run());
   assert.match(await test.page.locator('#cxds-panel [data-role="status"]').textContent(), /加密字体样式尚未加载/);
   assert.equal(await test.page.evaluate(() => window.__requests.length), 0);
-  checks.push('three iframe layers: 10 encrypted questions found; one panel; hidden/exam frames excluded; absent font pauses before model request; diagnostic redacted');
+  checks.push('three iframe layers: 10 encrypted questions found; one panel; hidden frames excluded; absent font pauses before model request; diagnostic redacted');
   await test.context.close();
 
   test = await setup(legacy());
@@ -131,7 +131,7 @@ try {
 
   test = await setup(legacy(), '<iframe src="/second"></iframe>');
   await test.page.evaluate(() => window.__cxdsFrameTest.run());
-  assert.match(await test.page.locator('#cxds-panel [data-role="status"]').textContent(), /多个作业页面/);
+  assert.match(await test.page.locator('#cxds-panel [data-role="status"]').textContent(), /多个答题页面/);
   assert.equal(await test.page.evaluate(() => window.__requests.length), 0);
   checks.push('ambiguous simultaneous work documents pause before requesting answers');
   await test.context.close();

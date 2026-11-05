@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.5.0
+// @version      0.5.1
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
 // @downloadURL  https://raw.githubusercontent.com/chenkangping1405964271/chaoxing-deepseek-homework/refs/heads/codex/open-source/dist/chaoxing-deepseek-homework.user.js
 // @updateURL    https://raw.githubusercontent.com/chenkangping1405964271/chaoxing-deepseek-homework/refs/heads/codex/open-source/dist/chaoxing-deepseek-homework.meta.js
-// @description  在普通作业页面调用 DeepSeek 并填答
+// @description  在课程作业及考试答题页调用 DeepSeek 并填答
 // @match        *://*.chaoxing.com/*
 // @match        *://chaoxing.com/*
 // @connect      api.deepseek.com
@@ -59,7 +59,7 @@
   function frameDocuments() {
     const documents = [], frames = [], visited = new Set();
     const visit = doc => {
-      if (visited.has(doc) || isExam(doc)) return;
+      if (visited.has(doc)) return;
       visited.add(doc);
       documents.push(doc);
       for (const frame of doc.querySelectorAll('iframe, frame')) {
@@ -80,7 +80,7 @@
       assertRunning(token);
       const { documents, frames } = frameDocuments();
       const matches = documents.filter(doc => rootsIn(doc).length);
-      if (matches.length > 1) throw new Error('发现多个作业页面，请只打开一份作业');
+      if (matches.length > 1) throw new Error('发现多个答题页面，请只保留一份可见答题页');
       if (matches.length === 1) return matches[0];
       if (i === 100) throw new Error(frames.some(f => !f.accessible)
         ? '题目所在 iframe 无法访问，请切换到题目内的助手或单独打开作业页'
@@ -228,10 +228,20 @@
     field('apiKey').value = '';
     settings.model = field('model').value.trim();
     settings.autoNext = field('autoNext').checked;
-    settings.autoSubmit = field('autoSubmit').checked;
+    if (!frameDocuments().documents.some(isExam)) settings.autoSubmit = field('autoSubmit').checked;
+    syncSubmitMode();
     settings.expectedTotal = Number(field('expectedTotal').value) || 0;
     settings.delayMs = Math.max(0, Math.min(30000, Number(field('delayMs').value) || 0));
     GM_setValue(SETTINGS, { ...settings });
+  }
+
+  function syncSubmitMode() {
+    const examPage = frameDocuments().documents.some(isExam);
+    const submit = field('autoSubmit');
+    submit.disabled = examPage;
+    submit.checked = examPage ? false : settings.autoSubmit;
+    submit.closest('label').title = examPage ? '考试页面由你核对后手动交卷' : '';
+    return examPage;
   }
 
   function lock(value) {
@@ -552,7 +562,7 @@
     const stem = clean(title.textContent);
     if (!stem && !titleImageCount) throw pageIssue('题干内容尚未加载');
     if (stem.length > 20000) throw new Error('题干过长');
-    const typeInputs = [...root.querySelectorAll('input[id^="answertype"]')];
+    const typeInputs = [...root.querySelectorAll('input')].filter(input => /^answertype/.test(input.id) || /^type\d+$/.test(input.name));
     const typeValue = (typeInputs.find(el => /type\d+/.test(el.name)) || typeInputs[0])?.value
       ?? root.getAttribute('data-question-type') ?? root.getAttribute('data-type') ?? (root.matches('.TiMu') ? root.getAttribute('data') : undefined);
     let type;
@@ -568,7 +578,7 @@
     if (!type) throw typeValue != null && typeValue !== '' ? new Error('不支持的题型') : pageIssue('题型或选项尚未加载');
     const numberMatch = stem.match(/^\s*(\d+)\s*[.、．)）]/) || clean(root.querySelector('.Zy_TItle > i')?.textContent).match(/^(\d+)$/);
     const number = numberMatch ? Number(numberMatch[1]) : null;
-    const id = root.dataset.questionid || root.dataset.questionId || root.dataset.qid || root.getAttribute('questionid') || root.id || typeInputs[0]?.id.replace(/^answertype/, '') || '';
+    const id = root.dataset.questionid || root.dataset.questionId || root.dataset.qid || root.getAttribute('questionid') || root.id || typeInputs.find(input => /^type\d+$/.test(input.name))?.name.slice(4) || typeInputs[0]?.id.replace(/^answertype/, '') || '';
     let choices = [];
     let inputs = [];
     let adapter = 'text';
@@ -604,7 +614,7 @@
   }
 
   function storedChoiceMatches(question, targets) {
-    if (question.adapter !== 'legacy') return true;
+    if (!['legacy', 'answer-bg'].includes(question.adapter)) return true;
     const answer = [...question.root.querySelectorAll('input[type="hidden"]')].find(input => input.id === 'answer' + question.id || input.name === 'answer' + question.id);
     const codes = targets.map(choice => choice.container.querySelector('.num_option, .num_option_dx')?.getAttribute('data'));
     if (!answer || codes.some(code => code == null)) return true;
@@ -671,10 +681,11 @@
     const token = ++generation;
     lock(true);
     try {
-      if (/\/exam(?:-ans)?\//i.test(location.pathname)) throw new Error('考试页面不属于作业适配范围');
       if (!settings.apiKey || !settings.model) throw new Error('请配置 API Key 和模型');
-      if (settings.autoSubmit && (!Number.isInteger(settings.expectedTotal) || settings.expectedTotal < 1)) throw new Error('自动提交需要填写作业总题数');
       const questionDocument = await findQuestionDocument(token);
+      const examPage = syncSubmitMode();
+      const autoSubmit = settings.autoSubmit && !examPage;
+      if (autoSubmit && (!Number.isInteger(settings.expectedTotal) || settings.expectedTotal < 1)) throw new Error('自动提交需要填写作业总题数');
       const seen = new Map();
       const pages = new Set();
       while (true) {
@@ -691,7 +702,7 @@
           assertRunning(token);
           setStatus('正在请求第 ' + (q.number || seen.size + 1) + ' 题');
           const result = await completion([
-            { role: 'system', content: '解答课程作业。仅输出 JSON 对象，格式 {"answers":["A"],"needs_review":false,"reason":"简短依据"}。选择题 answers 用选项字母，多选每个字母单独一项。填空或简答按顺序给出每个文本框答案。题干或选项标记见图片时，读取相应截图中的文字与公式；不要猜测不清晰的字。信息不足或无法判断时 needs_review 为 true。' },
+            { role: 'system', content: '解答当前题目。仅输出 JSON 对象，格式 {"answers":["A"],"needs_review":false,"reason":"简短依据"}。选择题 answers 用选项字母，多选每个字母单独一项。填空或简答按顺序给出每个文本框答案。题干或选项标记见图片时，读取相应截图中的文字与公式；不要猜测不清晰的字。信息不足或无法判断时 needs_review 为 true。' },
             { role: 'user', content: userContent }
           ]);
           assertRunning(token);
@@ -733,7 +744,7 @@
           if (!changed) throw new Error('翻页后题目未变化');
           continue;
         }
-        if (settings.autoSubmit) {
+        if (autoSubmit) {
           if (seen.size !== settings.expectedTotal || [...seen.keys()].some(k => typeof k !== 'number') || Array.from({ length: settings.expectedTotal }, (_, i) => i + 1).some(n => !seen.has(n))) throw new Error('题号或总题数不完整，未提交');
           if (questions.some(q => !seen.get(q.number)?.verify())) throw new Error('当前页面答案发生变化，未提交');
           const buttons = usableButtons(/^(提交|提交作业)$/, questionDocument);
@@ -748,7 +759,7 @@
             if (confirmations.length === 1) { confirmations[0].click(); break; }
           }
           setStatus('已点击提交，请查看页面确认结果');
-        } else setStatus('当前页面填答完成，请检查作业及提交状态');
+        } else setStatus(examPage ? '当前页面填答完成，请核对后手动交卷' : '当前页面填答完成，请检查作业及提交状态');
         break;
       }
     } catch (error) {
@@ -781,7 +792,7 @@
           controls: root.querySelectorAll('input, textarea, [contenteditable]').length,
           choiceElements: options.choices.length, adapter: options.adapter,
           encryptedFont: root.matches('.font-cxsecret') || !!root.querySelector('.font-cxsecret'),
-          hasTypeInput: !!root.querySelector('input[id^="answertype"]') };
+          hasTypeInput: [...root.querySelectorAll('input')].some(input => /^answertype/.test(input.id) || /^type\d+$/.test(input.name)) };
         try {
           const question = parseQuestion(root);
           details.type = question.type;
@@ -803,7 +814,7 @@
 
   function mount() {
     if (document.getElementById('cxds-panel') || !document.body) return;
-    if (!roots().length && !/work|homework|studentstudy|knowledge\/cards/i.test(location.pathname)) return;
+    if (!roots().length && !/work|homework|studentstudy|knowledge\/cards|\/exam(?:-ans)?\//i.test(location.pathname)) return;
     const host = document.createElement('div');
     host.id = 'cxds-panel';
     document.body.append(host);
@@ -842,6 +853,10 @@
     syncCompanion('等待开始');
     for (const name of ['model', 'expectedTotal', 'delayMs']) field(name).value = settings[name];
     for (const name of ['autoNext', 'autoSubmit']) field(name).checked = settings[name];
+    syncSubmitMode();
+    document.addEventListener('load', event => {
+      if (event.target.matches?.('iframe, frame')) syncSubmitMode();
+    }, true);
     action('save').onclick = () => { saveSettings(); setStatus('设置已保存'); };
     action('clearKey').onclick = () => { settings.apiKey = ''; field('apiKey').value = ''; GM_setValue(SETTINGS, { ...settings }); setStatus('Key 已清除'); };
     action('start').onclick = run;

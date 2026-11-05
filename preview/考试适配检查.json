@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "checks": [
+    "direct exam entry mounts; named type supplies stable id; single-choice stored value verified; saved coursework submission preference retained; no exam submission",
+    "exam multi-choice clears old values and verifies the full stored answer",
+    "exam judgement letters map to true/false stored values",
+    "exam multiple text blanks filled in order",
+    "exam short-answer text field filled",
+    "visible nested exam participates in discovery; one panel; submission disabled in wrapper and exam; diagnostic redacted",
+    "exam wrapper with work-path question iframe also requires manual hand-in",
+    "exam panel mounts before asynchronously loaded questions arrive",
+    "exam Ajax next-question replacement re-parses named ids and stops at disabled final navigation",
+    "visual exam selection without answer-field update pauses",
+    "manual pause ignores a late model response without filling or submitting"
+  ],
+  "browserErrors": [],
+  "limits": "Fictional exam layouts; model requests mocked locally; no live account, paid API or server-save verification."
+}

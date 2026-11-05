@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.5.0
+// @version      0.5.1
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
 // @downloadURL  https://raw.githubusercontent.com/chenkangping1405964271/chaoxing-deepseek-homework/refs/heads/codex/open-source/dist/chaoxing-deepseek-homework.user.js
 // @updateURL    https://raw.githubusercontent.com/chenkangping1405964271/chaoxing-deepseek-homework/refs/heads/codex/open-source/dist/chaoxing-deepseek-homework.meta.js
-// @description  在普通作业页面调用 DeepSeek 并填答
+// @description  在课程作业及考试答题页调用 DeepSeek 并填答
 // @match        *://*.chaoxing.com/*
 // @match        *://chaoxing.com/*
 // @connect      api.deepseek.com

@@ -1,7 +1,7 @@
 {
   "result": "PASS",
   "checks": [
-    "three iframe layers: 10 encrypted questions found; one panel; hidden/exam frames excluded; absent font pauses before model request; diagnostic redacted",
+    "three iframe layers: 10 encrypted questions found; one panel; hidden frames excluded; absent font pauses before model request; diagnostic redacted",
     "legacy question number/type/options and iframe-relative image URLs parsed; native option click updates hidden answer; outer navigation untouched",
     "next-question lookup and pagination stay inside the selected work document",
     "optional submission and confirmation only target the selected work document",
