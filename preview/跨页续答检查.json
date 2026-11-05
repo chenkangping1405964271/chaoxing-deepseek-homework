@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "checks": [
+    "three full exam page loads continue automatically after each save callback, without duplicate answers or hand-in",
+    "per-tab continuation checkpoints contain only scope/page hashes, counters and expiry; no key, question text or raw task identifiers",
+    "surviving course wrapper reacquires the replaced question iframe and keeps a single controller",
+    "diagnostics include script version, auto-next state and scoped next-button availability",
+    "a reloaded copy of the same question pauses before another model request",
+    "navigation to a different course/task stops continuation before requesting or filling",
+    "pause during a pending platform save cancels continuation even if the platform later navigates",
+    "expired continuation state is consumed without answering the new page",
+    "auto-next disabled leaves the current page in place with no continuation state",
+    "coursework can continue across full reloads and requires manual submission after such continuation",
+    "failed save or blocked navigation times out and clears continuation state"
+  ],
+  "browserErrors": [],
+  "limits": "Fictional documents with real browser and iframe navigations; API and platform-save responses mocked; no live account or server-save verification."
+}

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.5.1
+// @version      0.5.2
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
@@ -30,6 +30,7 @@
   try { if (window.parent !== window && window.parent.document) return; } catch { /* Separate origin. */ }
 
   const SETTINGS = 'cxds.settings.v1';
+  const NAVIGATION = 'cxds.navigation.v1';
   const ART = __CXDS_ART__;
   const PANEL_HTML = __CXDS_PANEL__;
   const ROOT_SELECTOR = '.TiMu, .questionLi, [data-questionid], [data-question-id], [data-qid], [data-role="question"], .question-item';
@@ -44,6 +45,7 @@
   let panel;
   let statusNode;
   let logNode;
+  let pendingNavigation = null;
 
   const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -675,26 +677,84 @@
     return candidates[0];
   }
 
-  async function run() {
+  async function fingerprint(value) {
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+    return [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  function taskIdentity(doc) {
+    const url = new URL(doc.location.href);
+    const keys = ['courseid', 'classid', 'workid', 'oldworkid', 'id', 'tid', 'examid', 'testpaperid', 'testuserrelationid', 'cpi', 'userid'];
+    const fields = [...doc.querySelectorAll('input[type="hidden"]')];
+    const params = [...url.searchParams];
+    return [url.origin, url.pathname, keys.map(key => [key,
+      params.find(([name]) => name.toLowerCase() === key)?.[1]
+      || fields.find(input => input.name.toLowerCase() === key || input.id.toLowerCase() === key)?.value || ''])];
+  }
+
+  const navigationScope = doc => fingerprint(JSON.stringify([taskIdentity(document), taskIdentity(doc)]));
+  const pageFingerprint = questions => fingerprint(JSON.stringify(questions.map(q => [q.id, q.number, !q.id && !q.number ? q.signature : null])));
+
+  function clearNavigation(id) {
+    try {
+      if (!id || JSON.parse(sessionStorage.getItem(NAVIGATION) || 'null')?.id === id) sessionStorage.removeItem(NAVIGATION);
+    } catch { /* Storage may be unavailable on non-web previews. */ }
+  }
+
+  async function prepareNavigation(doc, pages, completed, token) {
+    if (pages.size > 1000) throw new Error('连续翻页次数已达上限，请手动检查后继续');
+    const scope = await navigationScope(doc);
+    assertRunning(token);
+    const checkpoint = { version: 1, id: crypto.randomUUID(), expires: Date.now() + 120000, scope, pages: [...pages], completed };
+    try { sessionStorage.setItem(NAVIGATION, JSON.stringify(checkpoint)); }
+    catch { throw new Error('无法保存翻页续答状态，请检查浏览器会话存储权限'); }
+    pendingNavigation = checkpoint;
+    return checkpoint;
+  }
+
+  function resumeAfterNavigation() {
+    let checkpoint;
+    try { checkpoint = JSON.parse(sessionStorage.getItem(NAVIGATION) || 'null'); }
+    catch { clearNavigation(); return; }
+    if (!checkpoint) return;
+    clearNavigation();
+    if (checkpoint.version !== 1 || !/^[a-f0-9]{64}$/.test(checkpoint.scope)
+      || !Array.isArray(checkpoint.pages) || !checkpoint.pages.length || checkpoint.pages.length > 1000
+      || checkpoint.pages.some(page => typeof page !== 'string' || !/^[a-f0-9]{64}$/.test(page))
+      || !Number.isInteger(checkpoint.completed) || checkpoint.completed < 1
+      || !Number.isFinite(checkpoint.expires) || checkpoint.expires < Date.now() || checkpoint.expires > Date.now() + 120000) {
+      setStatus('翻页续答记录已过期或无效，请手动开始');
+      return;
+    }
+    void run(checkpoint);
+  }
+
+  async function run(resumeState = null) {
     if (running) return;
     saveSettings();
     const token = ++generation;
     lock(true);
     try {
       if (!settings.apiKey || !settings.model) throw new Error('请配置 API Key 和模型');
-      const questionDocument = await findQuestionDocument(token);
+      if (resumeState && !settings.autoNext) throw new Error('自动翻页已关闭，续答已停止');
+      let questionDocument = await findQuestionDocument(token);
+      if (resumeState && await navigationScope(questionDocument) !== resumeState.scope) throw new Error('已离开原答题任务，续答已停止');
+      assertRunning(token);
       const examPage = syncSubmitMode();
-      const autoSubmit = settings.autoSubmit && !examPage;
+      const autoSubmit = settings.autoSubmit && !examPage && !resumeState;
       if (autoSubmit && (!Number.isInteger(settings.expectedTotal) || settings.expectedTotal < 1)) throw new Error('自动提交需要填写作业总题数');
       const seen = new Map();
-      const pages = new Set();
+      const pages = new Set(resumeState?.pages || []);
+      let completed = resumeState?.completed || 0;
       while (true) {
         assertRunning(token);
         if (!frameDocuments().documents.includes(questionDocument)) throw new Error('作业页面已切换，请重新开始');
         const questions = await readyQuestions(questionDocument, token);
         const pageKey = questions.map(q => q.signature).join('|');
-        if (pages.has(pageKey)) throw new Error('页面未变化或出现重复题目');
-        pages.add(pageKey);
+        const pageHash = await pageFingerprint(questions);
+        assertRunning(token);
+        if (pages.has(pageHash)) throw new Error('翻页后仍是原题或出现重复题目，已停止续答');
+        pages.add(pageHash);
         for (const q of questions) {
           assertRunning(token);
           if (q.number && seen.has(q.number)) throw new Error('题号重复');
@@ -725,23 +785,36 @@
             }
           }
           seen.set(q.number || 'id:' + (q.id || q.signature), { question: q, verify });
-          setStatus('已填写 ' + seen.size + ' 题');
+          completed++;
+          setStatus('已填写 ' + completed + ' 题');
           if (settings.delayMs) await wait(settings.delayMs);
         }
         assertRunning(token);
         const next = settings.autoNext && nextButton(questionDocument);
         if (next) {
+          const checkpoint = await prepareNavigation(questionDocument, pages, completed, token);
+          setStatus('正在保存并进入下一题，页面刷新后将自动续答');
           next.click();
           let changed = false;
           for (let i = 0; i < 150; i++) {
             await wait(100);
             assertRunning(token);
-            if (!frameDocuments().documents.includes(questionDocument)) throw new Error('作业页面已刷新，请重新开始');
+            const documents = frameDocuments().documents;
+            if (!documents.includes(questionDocument)) {
+              const matches = documents.filter(doc => rootsIn(doc).length);
+              if (matches.length > 1) throw new Error('翻页后发现多个答题页面，请手动检查');
+              if (!matches.length) continue;
+              if (await navigationScope(matches[0]) !== checkpoint.scope) throw new Error('翻页后已离开原答题任务，续答已停止');
+              assertRunning(token);
+              questionDocument = matches[0];
+            }
             const newRoots = rootsIn(questionDocument);
             try { changed = !!newRoots.length && newRoots.map(parseQuestion).map(q => q.signature).join('|') !== pageKey; } catch { changed = false; }
             if (changed) break;
           }
           if (!changed) throw new Error('翻页后题目未变化');
+          clearNavigation(checkpoint.id);
+          pendingNavigation = null;
           continue;
         }
         if (autoSubmit) {
@@ -759,18 +832,24 @@
             if (confirmations.length === 1) { confirmations[0].click(); break; }
           }
           setStatus('已点击提交，请查看页面确认结果');
-        } else setStatus(examPage ? '当前页面填答完成，请核对后手动交卷' : '当前页面填答完成，请检查作业及提交状态');
+        } else setStatus(examPage ? '当前页面填答完成，请核对后手动交卷' : resumeState ? '跨页续答完成，请核对后手动提交' : '当前页面填答完成，请检查作业及提交状态');
         break;
       }
     } catch (error) {
       if (token === generation) setStatus('已暂停：' + (error.message || '未知错误'));
     } finally {
-      if (token === generation) lock(false);
+      if (token === generation) {
+        clearNavigation(pendingNavigation?.id);
+        pendingNavigation = null;
+        lock(false);
+      }
     }
   }
 
   function stop() {
     generation++;
+    clearNavigation();
+    pendingNavigation = null;
     if (activeRequest) activeRequest.abort();
     if (rejectRequest) rejectRequest();
     lock(false);
@@ -781,10 +860,15 @@
     const { documents, frames } = frameDocuments();
     const candidates = documents.flatMap(doc => [...doc.querySelectorAll(ROOT_SELECTOR)].filter(el => visible(el) && el.querySelector(TITLE_SELECTOR)));
     const questionRoots = roots();
-    return { page: location.origin + location.pathname, title: document.title, questionCount: questionRoots.length,
+    return { version: '0.5.2', autoNext: settings.autoNext, running,
+      page: location.origin + location.pathname, title: document.title, questionCount: questionRoots.length,
       documentCount: documents.length, frames,
-      documents: documents.map(doc => ({ page: doc.location.origin + doc.location.pathname, questionCount: rootsIn(doc).length,
-        encryptedFontLoaded: [...doc.fonts].some(face => /font-cxsecret/.test(face.family) && face.status === 'loaded') })),
+      documents: documents.map(doc => {
+        let nextAvailable = false, navigationError;
+        try { nextAvailable = !!nextButton(doc); } catch (error) { navigationError = error.message; }
+        return { page: doc.location.origin + doc.location.pathname, questionCount: rootsIn(doc).length, nextAvailable, navigationError,
+          encryptedFontLoaded: [...doc.fonts].some(face => /font-cxsecret/.test(face.family) && face.status === 'loaded') };
+      }),
       candidateCount: candidates.length, excludedContainerCount: candidates.length - questionRoots.length,
       questions: questionRoots.map(root => {
         const options = optionNodes(root);
@@ -859,7 +943,7 @@
     }, true);
     action('save').onclick = () => { saveSettings(); setStatus('设置已保存'); };
     action('clearKey').onclick = () => { settings.apiKey = ''; field('apiKey').value = ''; GM_setValue(SETTINGS, { ...settings }); setStatus('Key 已清除'); };
-    action('start').onclick = run;
+    action('start').onclick = () => run();
     action('stop').onclick = stop;
     action('diagnostic').onclick = diagnostic;
     action('models').onclick = async () => {
@@ -887,6 +971,7 @@
       catch (error) { if (token === generation) setStatus('已暂停：' + error.message); }
       finally { if (token === generation) lock(false); }
     };
+    resumeAfterNavigation();
   }
 
   mount();
