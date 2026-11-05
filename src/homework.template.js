@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.4.5
+// @version      0.5.0
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
@@ -32,6 +32,9 @@
   const SETTINGS = 'cxds.settings.v1';
   const ART = __CXDS_ART__;
   const PANEL_HTML = __CXDS_PANEL__;
+  const ROOT_SELECTOR = '.TiMu, .questionLi, [data-questionid], [data-question-id], [data-qid], [data-role="question"], .question-item';
+  const TITLE_SELECTOR = '.splitS-left .mark_name, .Zy_TItle, .mark_name, [data-role="question-title"], .question-title, .questionTitle, legend, h3, h4, [role="heading"]';
+  const MAX_IMAGES = 64;
   const defaults = { apiKey: '', model: '', autoNext: true, autoSubmit: false, expectedTotal: 0, delayMs: 1000 };
   const settings = { ...defaults, ...GM_getValue(SETTINGS, {}) };
   let running = false;
@@ -46,7 +49,7 @@
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   const isExam = doc => /\/exam(?:-ans)?\//i.test(doc.location.pathname);
   const rootsIn = doc => {
-    const candidates = [...doc.querySelectorAll('.TiMu, .questionLi')].filter(visible);
+    const candidates = [...doc.querySelectorAll(ROOT_SELECTOR)].filter(el => visible(el) && el.querySelector(TITLE_SELECTOR));
     return candidates.filter(root => !candidates.some(other => root !== other && root.contains(other)));
   };
   const roots = () => frameDocuments().documents.flatMap(rootsIn);
@@ -89,18 +92,94 @@
   function visible(el) {
     if (!el || !el.isConnected) return false;
     for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
-      if (node.hidden || node.getAttribute('aria-hidden') === 'true') return false;
+      // aria-hidden hides content from accessibility APIs, not from visual users.
+      if (node.hidden) return false;
       const style = node.ownerDocument.defaultView.getComputedStyle(node);
-      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.contentVisibility === 'hidden' || Number(style.opacity) === 0) return false;
     }
     return true;
   }
 
-  function visibleOptionText(el) {
-    const parent = el && el.parentElement;
-    if (!parent || !visible(parent) || el.hidden || parent.matches('[disabled], [aria-disabled="true"], .disabled')) return false;
-    const style = el.ownerDocument.defaultView.getComputedStyle(el);
-    return style.display !== 'none' && style.visibility !== 'hidden';
+  function editable(el) {
+    return !el.disabled && !el.closest('[disabled], [aria-disabled="true"], [inert], .disabled');
+  }
+
+  function pageIssue(message) {
+    return Object.assign(new Error(message), { retryable: true });
+  }
+
+  function mediaUrl(source, base) {
+    const url = new URL(source, base);
+    if (url.protocol === 'http:' && (url.hostname === 'chaoxing.com' || url.hostname.endsWith('.chaoxing.com'))) url.protocol = 'https:';
+    return url.href;
+  }
+
+  function imageSource(image) {
+    const source = image.getAttribute('data-original') || image.getAttribute('data-src') || image.currentSrc || image.getAttribute('src');
+    if (!source) throw pageIssue('题目图片地址尚未加载');
+    return mediaUrl(source, image.baseURI);
+  }
+
+  function optionNodes(root) {
+    const native = [...root.querySelectorAll('input[type="radio"], input[type="checkbox"]')].map(input => {
+      const labels = [...(input.labels || [])].filter(label => root.contains(label) && visible(label));
+      const container = labels[0] || input.closest('li, [role="radio"], [role="checkbox"], .answerBg, .option-item, .answer-item') || input.parentElement;
+      return { input, container, textElement: container, element: input };
+    }).filter(choice => visible(choice.container));
+    if (native.length) return { adapter: 'native', choices: native };
+    const adapters = [
+      ['legacy', '.Zy_ulTop > li', el => el.querySelector('.after') || el],
+      ['answer-bg', '.answerBg .answer_p', el => el],
+      ['aria', '[role="radio"], [role="checkbox"]', el => el],
+      ['semantic', '[data-option], [data-option-id], .option-item, .answer-item', el => el]
+    ];
+    for (const [adapter, selector, text] of adapters) {
+      const elements = [...root.querySelectorAll(selector)].filter(visible);
+      const outer = elements.filter(el => !elements.some(parent => parent !== el && parent.contains(el)));
+      if (!outer.length) continue;
+      return { adapter, choices: outer.map(el => ({ container: adapter === 'answer-bg' ? el.closest('.answerBg') : el,
+        textElement: text(el), element: el })) };
+    }
+    return { adapter: 'unknown', choices: [] };
+  }
+
+  function choiceKey(choice, index) {
+    const marker = choice.container.querySelector('.num_option, .num_option_dx, .option-letter, .option-label, [data-role="option-label"], .answer_n') || choice.container.querySelector(':scope > label');
+    const values = [marker?.textContent, choice.container.getAttribute('data-option'), choice.container.getAttribute('data-letter'),
+      choice.container.getAttribute('data-option-id'), choice.input?.value];
+    for (const value of values) {
+      const match = clean(value).match(/^[（(]?([A-Z])[.、．)）:：]?$/i);
+      if (match) return { key: match[1].toUpperCase(), labelled: true };
+    }
+    const prefix = clean(choice.textElement.textContent).match(/^(?:[（(]([A-Z])[）)]|([A-Z])[.、．):：])/i);
+    return prefix ? { key: (prefix[1] || prefix[2]).toUpperCase(), labelled: true }
+      : { key: String.fromCharCode(65 + index), labelled: false };
+  }
+
+  async function readyQuestions(doc, token) {
+    let issue;
+    for (let i = 0; i <= 100; i++) {
+      assertRunning(token);
+      if (!frameDocuments().documents.includes(doc)) throw new Error('作业页面已切换，请重新开始');
+      try {
+        const current = rootsIn(doc);
+        if (!current.length) throw pageIssue('当前页面未识别到作业题目');
+        return current.map(root => {
+          try { return parseQuestion(root); }
+          catch (error) {
+            const number = clean(root.querySelector('.Zy_TItle > i')?.textContent);
+            if (/^\d+$/.test(number)) error.message = '第 ' + number + ' 题：' + error.message;
+            throw error;
+          }
+        });
+      } catch (error) {
+        if (!error.retryable) throw error;
+        issue = error;
+      }
+      if (i === 0) setStatus('正在等待题干和选项加载完整');
+      if (i < 100) await wait(100);
+    }
+    throw issue;
   }
 
   function setStatus(message) {
@@ -279,7 +358,7 @@
       try { raw = atob(match[1].replace(/\s/g, '')); } catch { throw new Error('图片数据无法读取'); }
       return imageDataUrl(Uint8Array.from(raw, char => char.charCodeAt(0)).buffer);
     }
-    const url = new URL(source, location.href);
+    const url = new URL(mediaUrl(source, location.href));
     if (url.protocol === 'blob:') {
       if (url.origin !== location.origin) throw new Error('无法读取跨站图片');
       const controller = new AbortController();
@@ -370,10 +449,8 @@
     }
     const pictures = [];
     for (const image of [...element.querySelectorAll('img')].filter(visible)) {
-      if (pictures.length >= 12) throw new Error('单个题干或选项图片超过 12 张');
-      const source = image.currentSrc || image.getAttribute('src');
-      if (!source) throw new Error('题目图片缺少地址');
-      const data = await readImage(new URL(source, image.baseURI).href);
+      if (pictures.length >= MAX_IMAGES) throw new Error('单个题干或选项图片超过数量限制');
+      const data = await readImage(imageSource(image));
       assertRunning(token);
       const decoded = new view.Image();
       decoded.src = data;
@@ -459,68 +536,82 @@
   }
 
   function parseQuestion(root) {
-    const title = root.querySelector('.splitS-left .mark_name, .Zy_TItle .clearfix, .Zy_TItle, .mark_name');
-    if (!title) throw new Error('无法识别题干');
+    const title = root.querySelector(TITLE_SELECTOR);
+    if (!title) throw pageIssue('题干尚未加载');
     const visual = !!root.querySelector('.font-cxsecret') || root.classList.contains('font-cxsecret');
     if (title.querySelector('video, audio, canvas, svg')) throw new Error('题干含不支持的媒体');
     const images = [];
     const collectImages = (element, label) => {
-      const found = [...element.querySelectorAll('img')];
+      const found = [...element.querySelectorAll('img')].filter(visible);
       found.forEach((image, index) => {
-        const src = image.currentSrc || image.getAttribute('src');
-        if (!src) throw new Error('题目图片缺少地址');
-        images.push({ label: label + '图片' + (index + 1), src: new URL(src, image.baseURI).href });
+        images.push({ label: label + '图片' + (index + 1), src: imageSource(image) });
       });
       return found.length;
     };
     const titleImageCount = collectImages(title, '题干');
     const stem = clean(title.textContent);
-    if ((!stem && !titleImageCount) || stem.length > 20000) throw new Error('题干为空或过长');
+    if (!stem && !titleImageCount) throw pageIssue('题干内容尚未加载');
+    if (stem.length > 20000) throw new Error('题干过长');
     const typeInputs = [...root.querySelectorAll('input[id^="answertype"]')];
-    const typeValue = (typeInputs.find(el => /type\d+/.test(el.name)) || typeInputs[0])?.value;
+    const typeValue = (typeInputs.find(el => /type\d+/.test(el.name)) || typeInputs[0])?.value
+      ?? root.getAttribute('data-question-type') ?? root.getAttribute('data-type') ?? (root.matches('.TiMu') ? root.getAttribute('data') : undefined);
     let type;
-    if (typeValue !== undefined) type = ({ '0': 'single', '1': 'multiple', '3': 'judge', '2': 'text', '4': 'text', '5': 'text', '6': 'text', '7': 'text', '8': 'text', '9': 'text', '10': 'text' })[typeValue];
+    if (typeValue != null && typeValue !== '') type = ({ '0': 'single', '1': 'multiple', '3': 'judge', '2': 'text', '4': 'text', '5': 'text', '6': 'text', '7': 'text', '8': 'text', '9': 'text', '10': 'text',
+      single: 'single', radio: 'single', multiple: 'multiple', checkbox: 'multiple', judge: 'judge', text: 'text', blank: 'text' })[typeValue];
     else if (/多选/.test(stem)) type = 'multiple';
     else if (/单选/.test(stem)) type = 'single';
     else if (/判断/.test(stem)) type = 'judge';
     else if (/填空|简答|论述|问答/.test(stem)) type = 'text';
-    if (!type) throw new Error('不支持的题型');
+    else if (root.querySelector('input[type="checkbox"], [role="checkbox"]')) type = 'multiple';
+    else if (root.querySelector('input[type="radio"], [role="radio"]')) type = 'single';
+    else if (root.querySelector('textarea, [contenteditable="true"]')) type = 'text';
+    if (!type) throw typeValue != null && typeValue !== '' ? new Error('不支持的题型') : pageIssue('题型或选项尚未加载');
     const numberMatch = stem.match(/^\s*(\d+)\s*[.、．)）]/) || clean(root.querySelector('.Zy_TItle > i')?.textContent).match(/^(\d+)$/);
     const number = numberMatch ? Number(numberMatch[1]) : null;
-    const id = root.dataset.questionid || root.getAttribute('questionid') || root.id || typeInputs[0]?.id.replace(/^answertype/, '') || '';
+    const id = root.dataset.questionid || root.dataset.questionId || root.dataset.qid || root.getAttribute('questionid') || root.id || typeInputs[0]?.id.replace(/^answertype/, '') || '';
     let choices = [];
     let inputs = [];
+    let adapter = 'text';
     if (type === 'text') {
       inputs = [...root.querySelectorAll('textarea, input[type="text"], input:not([type]), [contenteditable="true"]')].filter(el => visible(el) && !el.disabled && !el.readOnly);
-      if (!inputs.length) throw new Error('找不到可编辑的答题框');
+      if (!inputs.length) throw pageIssue('找不到可编辑的答题框');
     } else {
-      const controls = [...root.querySelectorAll('input[type="radio"], input[type="checkbox"]')].filter(el => !el.disabled && visible(el.closest('label, li') || el.parentElement));
-      if (controls.length) {
-        choices = controls.map((input, index) => {
-          const container = input.closest('label, li') || input.parentElement;
-          if (container.querySelector('canvas, video, audio, svg')) throw new Error('选项含不支持的媒体');
-          const key = String.fromCharCode(65 + index);
-          const imageCount = collectImages(container, '选项' + key);
-          return { key, text: clean(container.textContent).replace(/^[A-Z][.、．)）:]\s*/, ''), imageCount, input, container };
-        });
-      } else {
-        choices = [...root.querySelectorAll('.answerBg .answer_p, .Zy_ulTop > li .after')].filter(visibleOptionText).map((element, index) => {
-          if (element.querySelector('canvas, video, audio, svg')) throw new Error('选项含不支持的媒体');
-          const key = String.fromCharCode(65 + index);
-          const imageCount = collectImages(element, '选项' + key);
-          const container = element.closest('.Zy_ulTop > li') || element.parentElement;
-          return { key, text: clean(element.textContent).replace(/^[A-Z][.、．)）:]\s*/, ''), imageCount, container, textElement: element, element: container.matches('.Zy_ulTop > li') ? container : element };
-        });
-      }
-      if (choices.length < 2 || choices.length > 26 || choices.some(c => !c.text && !c.imageCount)) throw new Error('无法识别完整选项');
+      const found = optionNodes(root);
+      adapter = found.adapter;
+      choices = found.choices.map((choice, index) => {
+        if (choice.textElement.querySelector('canvas, video, audio, svg')) throw new Error('选项含不支持的媒体');
+        if (choice.container === root || found.choices.some(other => other !== choice && other.container === choice.container)) throw new Error('无法定位每个选项的独立容器');
+        const key = choiceKey(choice, index);
+        const imageCount = collectImages(choice.textElement, '选项' + key.key);
+        const text = clean(choice.textElement.textContent).replace(/^(?:[（(][A-Z][）)]|[A-Z][.、．):：])\s*/i, '');
+        return { ...choice, ...key, text, imageCount, disabled: !editable(choice.element) || !editable(choice.container) };
+      });
+      if (choices.length < 2 || choices.length > 26 || choices.some(c => !c.text && !c.imageCount)) throw pageIssue('无法识别完整选项（适配器：' + adapter + '，可见选项：' + choices.length + '）');
+      if (new Set(choices.map(c => c.key)).size !== choices.length) throw new Error('选项字母重复，存在多个可见选项副本或标签冲突');
+      if (choices.some(c => c.labelled) && choices.some(c => !c.labelled)) throw new Error('选项字母标签不完整，请检查页面加载状态');
+      if (choices.every(c => c.disabled)) throw new Error('选项不可编辑，请确认作业处于作答状态');
     }
-    if (images.length > 12) throw new Error('单题图片超过 12 张，请手动处理');
-    return { root, title, stem, type, number, id, choices, inputs, images, visual, signature: JSON.stringify([id, number, stem, type, visual, inputs.length, choices.map(c => c.text), images]) };
+    if (images.length > MAX_IMAGES) throw new Error('单题图片超过数量限制，请手动处理');
+    return { root, title, stem, type, number, id, choices, inputs, images, visual, adapter, signature: JSON.stringify([id, number, stem, type, visual, adapter, inputs.length, choices.map(c => [c.key, c.text, c.disabled]), images]) };
   }
 
   function selected(choice) {
     if (choice.input) return choice.input.checked;
-    return !!choice.container.querySelector('[class*="check_answer"], [aria-checked="true"]') || choice.container.getAttribute('aria-checked') === 'true';
+    const state = choice.container.getAttribute('aria-checked') ?? choice.container.getAttribute('data-selected');
+    if (state === 'true' || state === 'false') return state === 'true';
+    const selector = '.check_answer, .check_answer_dx, .is-selected, .is-checked, .selected, .checked, [aria-checked="true"]';
+    return choice.container.matches(selector) || !!choice.container.querySelector(selector);
+  }
+
+  function storedChoiceMatches(question, targets) {
+    if (question.adapter !== 'legacy') return true;
+    const answer = [...question.root.querySelectorAll('input[type="hidden"]')].find(input => input.id === 'answer' + question.id || input.name === 'answer' + question.id);
+    const codes = targets.map(choice => choice.container.querySelector('.num_option, .num_option_dx')?.getAttribute('data'));
+    if (!answer || codes.some(code => code == null)) return true;
+    if (question.type === 'multiple' && codes.every(code => /^[A-Z]$/.test(code))) {
+      return answer.value.replace(/[\s,;|]/g, '').split('').sort().join('') === codes.slice().sort().join('');
+    }
+    return answer.value === codes.join('');
   }
 
   function resolveChoice(question, answer) {
@@ -552,13 +643,14 @@
     }
     const targets = result.answers.map(answer => resolveChoice(question, answer));
     if (new Set(targets).size !== targets.length || (question.type !== 'multiple' && targets.length !== 1)) throw new Error('选项数量不正确');
+    if (question.choices.some(choice => selected(choice) !== targets.includes(choice) && (!editable(choice.element) || !editable(choice.container)))) throw new Error('选项不可编辑，请确认作业处于作答状态');
     for (const choice of question.choices) {
       if (selected(choice) !== targets.includes(choice)) {
         if (choice.input) choice.input.click();
         else choice.element.click();
       }
     }
-    return () => question.root.isConnected && question.choices.every(choice => choice.container.isConnected && question.root.contains(choice.container) && (!choice.input || (choice.input.isConnected && question.root.contains(choice.input))) && selected(choice) === targets.includes(choice));
+    return () => question.root.isConnected && storedChoiceMatches(question, targets) && question.choices.every(choice => choice.container.isConnected && question.root.contains(choice.container) && (!choice.input || (choice.input.isConnected && question.root.contains(choice.input))) && selected(choice) === targets.includes(choice));
   }
 
   function usableButtons(pattern, doc) {
@@ -588,9 +680,7 @@
       while (true) {
         assertRunning(token);
         if (!frameDocuments().documents.includes(questionDocument)) throw new Error('作业页面已切换，请重新开始');
-        const current = rootsIn(questionDocument);
-        if (!current.length) throw new Error('当前页面未识别到作业题目');
-        const questions = current.map(parseQuestion);
+        const questions = await readyQuestions(questionDocument, token);
         const pageKey = questions.map(q => q.signature).join('|');
         if (pages.has(pageKey)) throw new Error('页面未变化或出现重复题目');
         pages.add(pageKey);
@@ -678,18 +768,27 @@
 
   function diagnosticReport() {
     const { documents, frames } = frameDocuments();
-    const candidates = documents.flatMap(doc => [...doc.querySelectorAll('.TiMu, .questionLi')].filter(visible));
+    const candidates = documents.flatMap(doc => [...doc.querySelectorAll(ROOT_SELECTOR)].filter(el => visible(el) && el.querySelector(TITLE_SELECTOR)));
     const questionRoots = roots();
     return { page: location.origin + location.pathname, title: document.title, questionCount: questionRoots.length,
       documentCount: documents.length, frames,
       documents: documents.map(doc => ({ page: doc.location.origin + doc.location.pathname, questionCount: rootsIn(doc).length,
         encryptedFontLoaded: [...doc.fonts].some(face => /font-cxsecret/.test(face.family) && face.status === 'loaded') })),
       candidateCount: candidates.length, excludedContainerCount: candidates.length - questionRoots.length,
-      questions: questionRoots.map(root => ({ className: root.className, hasTitle: !!root.querySelector('.Zy_TItle, .mark_name'),
-        controls: root.querySelectorAll('input, textarea, [contenteditable]').length,
-        choiceElements: root.querySelectorAll('input[type="radio"], input[type="checkbox"], .answerBg .answer_p, .Zy_ulTop > li .after').length,
-        encryptedFont: root.matches('.font-cxsecret') || !!root.querySelector('.font-cxsecret'),
-        hasTypeInput: !!root.querySelector('input[id^="answertype"]') })) };
+      questions: questionRoots.map(root => {
+        const options = optionNodes(root);
+        const details = { className: root.className, hasTitle: !!root.querySelector(TITLE_SELECTOR),
+          controls: root.querySelectorAll('input, textarea, [contenteditable]').length,
+          choiceElements: options.choices.length, adapter: options.adapter,
+          encryptedFont: root.matches('.font-cxsecret') || !!root.querySelector('.font-cxsecret'),
+          hasTypeInput: !!root.querySelector('input[id^="answertype"]') };
+        try {
+          const question = parseQuestion(root);
+          details.type = question.type;
+          details.optionKeys = question.choices.map(choice => choice.key);
+        } catch (error) { details.parseError = error.message; }
+        return details;
+      }) };
   }
 
   function diagnostic() {

@@ -1,0 +1,27 @@
+{
+  "result": "PASS",
+  "checks": [
+    "legacy aria-hidden list and image-only options",
+    "native radios retain letters when DOM order differs",
+    "checkbox inference clears old choices and selects the complete new set",
+    "hidden native inputs use visible labels associated by for",
+    "answerBg adapter uses explicit option markers",
+    "semantic ARIA radio groups infer type and use actual letters",
+    "generic data-option buttons use exact selected classes",
+    "fieldset legend and native radio controls",
+    "nested question wrappers produce one question",
+    "CSS and HTML hidden duplicate groups are excluded",
+    "15 lazy formula images use stable HTTPS addresses",
+    "duplicate visible option letters pause before requesting",
+    "read-only fieldset pauses before requesting",
+    "disabled target prevents all partial mutations",
+    "late-rendered option controls and inferred types are awaited",
+    "ARIA checkbox groups clear previous values",
+    "explicit unsupported type is not replaced by control inference",
+    "unknown layout reports adapter and visible count",
+    "legacy selected state agrees with the stored answer field",
+    "visual selection without a stored answer is rejected"
+  ],
+  "browserErrors": [],
+  "limits": "Fictional structural variants; all model and image requests mocked locally."
+}

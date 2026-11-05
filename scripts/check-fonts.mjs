@@ -37,7 +37,7 @@ async function setup({ loaded = true, image = false, model = 'deepseek-flash', r
     body{background:white;margin:20px;font:16px Arial}.font-cxsecret,.font-cxsecret *{font-family:'font-cxsecret'!important}.glyph{display:inline-block;font-size:40px;line-height:40px}
     li{margin-top:10px}label{display:inline-block;width:20px}img{width:20px;height:10px}</style>
     <div class="TiMu"><div class="mark_name"><span class="font-cxsecret glyph">&#xe001;&#xe002;</span>${image ? `<img src="${formula}">` : ''}</div>
-    <ul class="Zy_ulTop"><li><label>A</label><a class="after font-cxsecret glyph">&#xe001;</a></li><li><label>B</label><a class="after font-cxsecret glyph">&#xe002;</a></li></ul>
+    <ul class="Zy_ulTop" aria-hidden="true"><li><label>A</label><a class="after font-cxsecret glyph">&#xe001;</a></li><li><label>B</label><a class="after font-cxsecret glyph">&#xe002;</a></li></ul>
     <input type="hidden" id="answertype1" value="3"><input id="saved" type="hidden"></div>
     <script>document.addEventListener('click',event=>{const li=event.target.closest('li');if(!li)return;for(const other of document.querySelectorAll('li'))other.setAttribute('aria-checked',String(other===li));document.querySelector('#saved').value=li.querySelector('label').textContent;});</script>`;
   await context.route('**/*', route => {
