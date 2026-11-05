@@ -23,26 +23,26 @@
   "assets": [
     {
       "key": "welcome",
-      "width": 440,
-      "height": 440,
+      "width": 316,
+      "height": 418,
       "hasAlpha": true
     },
     {
       "key": "thinking",
-      "width": 440,
-      "height": 440,
+      "width": 364,
+      "height": 362,
       "hasAlpha": true
     },
     {
       "key": "rest",
-      "width": 440,
-      "height": 440,
+      "width": 362,
+      "height": 362,
       "hasAlpha": true
     },
     {
       "key": "complete",
-      "width": 440,
-      "height": 440,
+      "width": 362,
+      "height": 362,
       "hasAlpha": true
     }
   ],

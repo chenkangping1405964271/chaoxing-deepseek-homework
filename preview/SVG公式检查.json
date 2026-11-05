@@ -13,7 +13,7 @@
     "SVG formulas require an image-capable model",
     "pause interrupts formula decoding without a later model request",
     "unsupported canvas/media still pause explicitly",
-    "formula changes while requesting prevent stale-answer writes"
+    "formula changes discard stale answers and retry with a fresh formula before filling"
   ],
   "browserErrors": [],
   "limits": "Fictional inline SVG, glyph, font and media fixtures; model requests mocked locally; no real course content or paid API."

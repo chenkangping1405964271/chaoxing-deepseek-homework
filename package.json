@@ -1,6 +1,6 @@
 {
   "name": "chaoxing-whale-ui",
-  "version": "0.5.4",
+  "version": "0.5.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,10 @@
     "check-exams": "node scripts/check-exams.mjs",
     "check-navigation": "node scripts/check-navigation.mjs",
     "check-text": "node scripts/check-text.mjs",
-    "check-svg": "node scripts/check-svg.mjs"
+    "check-svg": "node scripts/check-svg.mjs",
+    "check-retry": "node scripts/check-retry.mjs",
+    "check-shortcuts": "node scripts/check-shortcuts.mjs",
+    "check-animation": "node scripts/check-animation.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.56.1",

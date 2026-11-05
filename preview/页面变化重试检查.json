@@ -1,0 +1,21 @@
+{
+  "result": "PASS",
+  "checks": [
+    "changed text discards the first result, re-reads the same question and fills only a newly requested answer",
+    "replacing a question root reacquires the same identifier without writing the old answer",
+    "UEditor root replacement retries against the new instance and synchronizes its backing field once",
+    "a surviving controller retries changes inside the question iframe",
+    "a formula change during image preparation retries before sending any stale model request",
+    "persistent changes stop after exactly three retries, with no text writes and the start button unlocked",
+    "manual pause during retry backoff prevents another request and preserves paused status",
+    "changing the task during retry prevents a new model request or old answer write",
+    "a different question identifier is never substituted for the original retry target",
+    "model uncertainty keeps its existing pause behavior and is not retried",
+    "unrelated API errors are not included in page-change retries",
+    "failed answer verification after a write pauses without repeating the write",
+    "retry counters reset for each question while progress counts only successfully filled questions",
+    "navigation compares the retried snapshot and still detects an unchanged page after a failed next action"
+  ],
+  "browserErrors": [],
+  "limits": "Fictional text, UEditor interface and SVG fixtures with local mocked API. No real course page, paid API or server save."
+}

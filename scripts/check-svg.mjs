@@ -157,10 +157,14 @@ try {
   await test.page.evaluate(() => { window.__hold = true; window.__pending = window.__svgTest.run(); });
   await test.page.waitForFunction(() => !!window.__reply);
   await test.work.evaluate(() => document.querySelector('.answer_p rect').setAttribute('width', '65'));
-  await test.page.evaluate(() => { window.__reply(); return window.__pending; });
-  assert.match(await test.page.locator('#cxds-panel [data-role=status]').textContent(), /页面发生变化/);
+  await test.page.evaluate(() => { window.__hold = false; window.__reply(); });
+  await test.page.waitForFunction(() => document.querySelector('#cxds-panel').shadowRoot.querySelector('[data-role=status]').textContent.includes('自动重试'));
   assert.equal(await test.work.locator('#answer101').inputValue(), '');
-  checks.push('formula changes while requesting prevent stale-answer writes');
+  await test.page.evaluate(() => window.__pending);
+  assert.match(await test.page.locator('#cxds-panel [data-role=status]').textContent(), /填答完成/);
+  assert.equal(await test.page.evaluate(() => window.__requests.length), 2);
+  assert.equal(await test.work.locator('#answer101').inputValue(), 'B');
+  checks.push('formula changes discard stale answers and retry with a fresh formula before filling');
   await test.context.close();
 
   assert.deepEqual(errors, []);

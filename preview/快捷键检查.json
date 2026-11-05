@@ -1,0 +1,19 @@
+{
+  "result": "PASS",
+  "checks": [
+    "Alt+Q removes the whole host from rendering and focus, including the dock, then restores it",
+    "full hide/show preserves the previous collapsed state",
+    "Alt+W starts, aborts and restarts while fully hidden without allowing a late answer write",
+    "ordinary typing, other shortcuts, composing text and AltGraph remain untouched",
+    "holding a shortcut key does not repeatedly toggle visibility or start/pause",
+    "shortcuts work when focus is inside a question iframe",
+    "new and reloaded nested rich-text iframe documents receive shortcut handlers",
+    "hiding from a focused panel input clears hidden focus and keeps restoration available",
+    "full hide persists across document reloads in the same tab and is cleared on restore",
+    "the userscript menu can also restore a completely hidden interface",
+    "only recognized shortcut presses stop page propagation; other keyboard events still reach the page",
+    "the hidden pause shortcut cancels page-change retry backoff"
+  ],
+  "browserErrors": [],
+  "limits": "Fictional browser/iframe fixtures with mocked model API. System-wide remappings and third-party extension shortcuts are outside this browser test."
+}

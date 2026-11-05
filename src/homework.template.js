@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.5.4
+// @version      0.5.6
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
@@ -31,11 +31,15 @@
 
   const SETTINGS = 'cxds.settings.v1';
   const NAVIGATION = 'cxds.navigation.v1';
+  const VISIBILITY = 'cxds.visibility.v1';
   const ART = __CXDS_ART__;
+  const MOTION_ART = __CXDS_MOTION_ART__;
+  const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
   const PANEL_HTML = __CXDS_PANEL__;
   const ROOT_SELECTOR = '.TiMu, .questionLi, [data-questionid], [data-question-id], [data-qid], [data-role="question"], .question-item';
   const TITLE_SELECTOR = '.splitS-left .mark_name, .Zy_TItle, .mark_name, [data-role="question-title"], .question-title, .questionTitle, legend, h3, h4, [role="heading"]';
   const MAX_IMAGES = 64;
+  const PAGE_CHANGE_RETRIES = 3;
   const defaults = { apiKey: '', model: '', autoNext: true, autoSubmit: false, expectedTotal: 0, delayMs: 1000 };
   const settings = { ...defaults, ...GM_getValue(SETTINGS, {}) };
   let running = false;
@@ -46,6 +50,8 @@
   let statusNode;
   let logNode;
   let pendingNavigation = null;
+  let interfaceHidden = false;
+  const shortcutDocuments = new WeakSet();
 
   const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -195,10 +201,12 @@
 
   function showPose(key, preview = false) {
     if (!panel || !ART[key]) return;
+    const mode = motionPreference.matches || interfaceHidden ? 'still' : 'animated';
     for (const image of panel.querySelectorAll('[data-role="mascot"], [data-role="dock-mascot"]')) {
-      if (image.dataset.pose !== key) {
+      if (image.dataset.pose !== key || image.dataset.motion !== mode) {
         image.dataset.pose = key;
-        image.src = ART[key];
+        image.dataset.motion = mode;
+        image.src = mode === 'animated' ? MOTION_ART[key] : ART[key];
       }
     }
     for (const button of panel.querySelectorAll('.pose[data-pose]')) button.setAttribute('aria-pressed', String(button.dataset.pose === key));
@@ -253,6 +261,60 @@
     for (const name of ['save', 'models', 'test', 'clearKey']) action(name).disabled = value;
     for (const button of panel.querySelectorAll('.pose[data-pose]')) button.disabled = value;
     syncCompanion(value ? '正在准备' : statusNode.textContent);
+  }
+
+  function setInterfaceHidden(hidden, persist = true) {
+    interfaceHidden = hidden;
+    const host = panel.host;
+    if (hidden) panel.activeElement?.blur();
+    host.hidden = hidden;
+    host.inert = hidden;
+    if (hidden) {
+      host.style.setProperty('display', 'none', 'important');
+      host.setAttribute('aria-hidden', 'true');
+    } else {
+      host.style.removeProperty('display');
+      host.removeAttribute('aria-hidden');
+    }
+    if (statusNode) showPose(panel.querySelector('[data-role="mascot"]').dataset.pose || 'welcome');
+    if (persist) {
+      try {
+        if (hidden) sessionStorage.setItem(VISIBILITY, 'hidden');
+        else sessionStorage.removeItem(VISIBILITY);
+      } catch { /* Keep the current document's visibility if storage is unavailable. */ }
+    }
+  }
+
+  function shortcut(event) {
+    if (!event.altKey || event.ctrlKey || event.shiftKey || event.metaKey || event.isComposing || event.getModifierState?.('AltGraph')) return;
+    const command = { KeyQ: 'hide', KeyW: 'run' }[event.code];
+    if (!command) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.repeat) return;
+    if (command === 'hide') setInterfaceHidden(!interfaceHidden);
+    else if (running) stop();
+    else void run();
+  }
+
+  function bindShortcuts(doc = document) {
+    if (!doc.documentElement || !doc.defaultView) return;
+    if (!shortcutDocuments.has(doc)) {
+      shortcutDocuments.add(doc);
+      doc.defaultView.addEventListener('keydown', shortcut, true);
+      doc.addEventListener('load', event => {
+        if (event.target.matches?.('iframe, frame')) bindShortcuts(doc);
+      }, true);
+      const observer = new doc.defaultView.MutationObserver(records => {
+        if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1 && (node.matches('iframe, frame') || node.querySelector('iframe, frame'))))) bindShortcuts(doc);
+      });
+      observer.observe(doc.documentElement, { childList: true, subtree: true });
+    }
+    // Keyboard events do not bubble out of iframes, including rich-text editors.
+    for (const frame of doc.querySelectorAll('iframe, frame')) {
+      try { if (frame.contentDocument) bindShortcuts(frame.contentDocument); }
+      catch { /* Other origins keep their own keyboard handling. */ }
+    }
   }
 
   function request(method, path, body) {
@@ -644,7 +706,7 @@
       assertRunning(token);
       const url = part.formula ? await renderSvgFormula(part.formula, token, question.root.ownerDocument) : part.element ? await renderQuestionFragment(part.element, token) : await readImage(part.src);
       assertRunning(token);
-      if (!frameDocuments().documents.includes(question.root.ownerDocument) || !question.root.isConnected || parseQuestion(question.root).signature !== question.signature) throw new Error('答题过程中页面发生变化');
+      if (!frameDocuments().documents.includes(question.root.ownerDocument) || !question.root.isConnected || parseQuestion(question.root).signature !== question.signature) throw pageChanged();
       contentLength += url.length + part.label.length + 128;
       if (contentLength > 32 * 1024 * 1024) throw new Error('单题图片内容过大，请手动处理');
       content.push({ type: 'text', text: part.label }, { type: 'image_url', image_url: { url } });
@@ -912,6 +974,70 @@
   const navigationScope = doc => fingerprint(JSON.stringify([taskIdentity(document), taskIdentity(doc)]));
   const pageFingerprint = questions => fingerprint(JSON.stringify(questions.map(q => [q.id, q.number, !q.id && !q.number ? q.signature : null])));
 
+  function pageChanged() {
+    return Object.assign(new Error('答题过程中页面发生变化'), { code: 'CXDS_PAGE_CHANGED' });
+  }
+
+  async function retryQuestion(previous, doc, token, scope, attempt) {
+    // Back off before re-reading; pause cancels both the delay and stability wait.
+    for (let i = 0; i < attempt * 10; i++) { await wait(100); assertRunning(token); }
+    let signature = '', stable = 0;
+    for (let i = 0; i <= 100; i++) {
+      assertRunning(token);
+      if (!frameDocuments().documents.includes(doc)) throw new Error('作业页面已切换，请重新开始');
+      if (await navigationScope(doc) !== scope) throw new Error('答题任务已切换，请重新开始');
+      assertRunning(token);
+      let matches = [];
+      try {
+        matches = rootsIn(doc).map(parseQuestion).filter(question => {
+          if (previous.id) return question.id === previous.id && (previous.number == null || question.number === previous.number);
+          if (previous.number != null) return question.number === previous.number;
+          return question.root === previous.root;
+        });
+      } catch (error) { if (!error.retryable) throw error; }
+      if (matches.length > 1) throw new Error('重试时无法唯一定位原题，请手动检查');
+      if (matches.length === 1) {
+        stable = matches[0].signature === signature ? stable + 1 : 1;
+        signature = matches[0].signature;
+        if (stable >= 3) return matches[0];
+      } else { signature = ''; stable = 0; }
+      if (i < 100) await wait(100);
+    }
+    throw new Error('重试时原题未加载稳定或已切换，请检查页面后重新开始');
+  }
+
+  async function answerQuestion(initial, doc, token, scope, fallbackNumber) {
+    let question = initial;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        assertRunning(token);
+        const userContent = await questionContent(question, token);
+        assertRunning(token);
+        setStatus('正在请求第 ' + (question.number || fallbackNumber) + ' 题');
+        const result = await completion([
+          { role: 'system', content: '解答当前题目。仅输出 JSON 对象，格式 {"answers":["A"],"needs_review":false,"reason":"简短依据"}。选择题 answers 用选项字母，多选每个字母单独一项。填空按空次给出文本答案。简答、论述、计算题的 answers 必须包含可直接填入文本框的完整答案及必要计算、推导步骤，不能只把步骤写在 reason 中。文本答案使用纯文本和必要换行，不含 HTML 或 Markdown 代码围栏。题干或选项标记见图片时，读取相应截图中的文字与公式；不要猜测不清晰的字。信息不足或无法判断时 needs_review 为 true。' },
+          { role: 'user', content: userContent }
+        ]);
+        assertRunning(token);
+        if (!frameDocuments().documents.includes(doc)) throw new Error('作业页面已切换，请重新开始');
+        if (await navigationScope(doc) !== scope) throw new Error('答题任务已切换，请重新开始');
+        assertRunning(token);
+        if (!question.root.isConnected) throw pageChanged();
+        if (question.type === 'text' && question.inputs.some(input => !textTargetConnected(input, question.root))) throw new Error('请求期间答题编辑器已切换或不可编辑');
+        const current = parseQuestion(question.root);
+        if (current.signature !== question.signature) throw pageChanged();
+        // Fill synchronously after validation. Errors after a write/save are not retried.
+        return { question: current, verify: fill(current, result) };
+      } catch (error) {
+        assertRunning(token);
+        if (error.code !== 'CXDS_PAGE_CHANGED') throw error;
+        if (attempt >= PAGE_CHANGE_RETRIES) throw new Error('答题过程中页面发生变化，已自动重试 ' + PAGE_CHANGE_RETRIES + ' 次，请检查页面后重新开始');
+        setStatus('答题过程中页面发生变化，等待稳定后自动重试（' + (attempt + 1) + '/' + PAGE_CHANGE_RETRIES + '）');
+        question = await retryQuestion(initial, doc, token, scope, attempt + 1);
+      }
+    }
+  }
+
   function clearNavigation(id) {
     try {
       if (!id || JSON.parse(sessionStorage.getItem(NAVIGATION) || 'null')?.id === id) sessionStorage.removeItem(NAVIGATION);
@@ -955,7 +1081,8 @@
       if (!settings.apiKey || !settings.model) throw new Error('请配置 API Key 和模型');
       if (resumeState && !settings.autoNext) throw new Error('自动翻页已关闭，续答已停止');
       let questionDocument = await findQuestionDocument(token);
-      if (resumeState && await navigationScope(questionDocument) !== resumeState.scope) throw new Error('已离开原答题任务，续答已停止');
+      const scope = await navigationScope(questionDocument);
+      if (resumeState && scope !== resumeState.scope) throw new Error('已离开原答题任务，续答已停止');
       assertRunning(token);
       const examPage = syncSubmitMode();
       const autoSubmit = settings.autoSubmit && !examPage && !resumeState;
@@ -967,28 +1094,15 @@
         assertRunning(token);
         if (!frameDocuments().documents.includes(questionDocument)) throw new Error('作业页面已切换，请重新开始');
         const questions = await readyQuestions(questionDocument, token);
-        const pageKey = questions.map(q => q.signature).join('|');
         const pageHash = await pageFingerprint(questions);
         assertRunning(token);
         if (pages.has(pageHash)) throw new Error('翻页后仍是原题或出现重复题目，已停止续答');
         pages.add(pageHash);
-        for (const q of questions) {
+        for (const [index, initial] of questions.entries()) {
           assertRunning(token);
-          if (q.number && seen.has(q.number)) throw new Error('题号重复');
-          const userContent = await questionContent(q, token);
-          assertRunning(token);
-          setStatus('正在请求第 ' + (q.number || seen.size + 1) + ' 题');
-          const result = await completion([
-            { role: 'system', content: '解答当前题目。仅输出 JSON 对象，格式 {"answers":["A"],"needs_review":false,"reason":"简短依据"}。选择题 answers 用选项字母，多选每个字母单独一项。填空按空次给出文本答案。简答、论述、计算题的 answers 必须包含可直接填入文本框的完整答案及必要计算、推导步骤，不能只把步骤写在 reason 中。文本答案使用纯文本和必要换行，不含 HTML 或 Markdown 代码围栏。题干或选项标记见图片时，读取相应截图中的文字与公式；不要猜测不清晰的字。信息不足或无法判断时 needs_review 为 true。' },
-            { role: 'user', content: userContent }
-          ]);
-          assertRunning(token);
-          if (!frameDocuments().documents.includes(questionDocument)) throw new Error('作业页面已切换，请重新开始');
-          if (!q.root.isConnected) throw new Error('答题过程中页面发生变化');
-          if (q.type === 'text' && q.inputs.some(input => !textTargetConnected(input, q.root))) throw new Error('请求期间答题编辑器已切换或不可编辑');
-          const currentQuestion = parseQuestion(q.root);
-          if (currentQuestion.signature !== q.signature) throw new Error('答题过程中页面发生变化');
-          const verify = fill(currentQuestion, result);
+          if (initial.number && seen.has(initial.number)) throw new Error('题号重复');
+          const { question: q, verify } = await answerQuestion(initial, questionDocument, token, scope, seen.size + 1);
+          questions[index] = q;
           await wait(120);
           assertRunning(token);
           if (!verify()) throw new Error('页面未确认填答状态');
@@ -1008,6 +1122,8 @@
           if (settings.delayMs) await wait(settings.delayMs);
         }
         assertRunning(token);
+        if (questions.some(q => !seen.get(q.number || 'id:' + (q.id || q.signature))?.verify())) throw new Error('页面变化后已填答案无法确认，请检查后继续');
+        const pageKey = questions.map(q => q.signature).join('|');
         const next = settings.autoNext && nextButton(questionDocument);
         if (next) {
           const checkpoint = await prepareNavigation(questionDocument, pages, completed, token);
@@ -1078,7 +1194,7 @@
     const { documents, frames } = frameDocuments();
     const candidates = documents.flatMap(doc => [...doc.querySelectorAll(ROOT_SELECTOR)].filter(el => visible(el) && el.querySelector(TITLE_SELECTOR)));
     const questionRoots = roots();
-    return { version: '0.5.4', autoNext: settings.autoNext, running,
+    return { version: '0.5.6', autoNext: settings.autoNext, running, interfaceHidden, pageChangeRetryLimit: PAGE_CHANGE_RETRIES,
       page: location.origin + location.pathname, title: document.title, questionCount: questionRoots.length,
       documentCount: documents.length, frames,
       documents: documents.map(doc => {
@@ -1125,8 +1241,10 @@
     if (!roots().length && !/work|homework|studentstudy|knowledge\/cards|\/exam(?:-ans)?\//i.test(location.pathname)) return;
     const host = document.createElement('div');
     host.id = 'cxds-panel';
-    document.body.append(host);
     panel = host.attachShadow({ mode: 'open' });
+    try { interfaceHidden = sessionStorage.getItem(VISIBILITY) === 'hidden'; } catch { /* Local visibility only. */ }
+    setInterfaceHidden(interfaceHidden, false);
+    document.body.append(host);
     panel.innerHTML = PANEL_HTML;
     for (const image of panel.querySelectorAll('img[data-art]')) {
       image.onerror = () => {
@@ -1159,6 +1277,7 @@
     statusNode = panel.querySelector('[data-role="status"]');
     logNode = panel.querySelector('[data-role="log"]');
     syncCompanion('等待开始');
+    motionPreference.addEventListener('change', () => showPose(panel.querySelector('[data-role="mascot"]').dataset.pose || 'welcome'));
     for (const name of ['model', 'expectedTotal', 'delayMs']) field(name).value = settings[name];
     for (const name of ['autoNext', 'autoSubmit']) field(name).checked = settings[name];
     syncSubmitMode();
@@ -1195,6 +1314,8 @@
       catch (error) { if (token === generation) setStatus('已暂停：' + error.message); }
       finally { if (token === generation) lock(false); }
     };
+    bindShortcuts();
+    GM_registerMenuCommand('显示/隐藏助手（Alt+Q）', () => setInterfaceHidden(!interfaceHidden));
     resumeAfterNavigation();
   }
 

@@ -124,7 +124,7 @@ try {
   assert.deepEqual(requests, []);
   const assetMetadata = [];
   for (const key of ['welcome', 'thinking', 'rest', 'complete']) {
-    const file = path.join(root, 'assets', `${key}.webp`);
+    const file = path.join(root, 'assets/animation', `${key}-still.webp`);
     const info = await sharp(file).metadata();
     const stats = await sharp(file).stats();
     assert(info.hasAlpha && stats.channels[3].min === 0 && stats.channels[3].max > 0);

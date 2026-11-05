@@ -1,0 +1,102 @@
+{
+  "source": "User-supplied GIF originals; copied without modification",
+  "playbackRate": 1.25,
+  "assets": [
+    {
+      "key": "welcome",
+      "file": "welcome.gif",
+      "sha256": "47568dcf3183aac77acf8eba99b2fb7e3905f32c767d5c094712a791dd97cf02",
+      "width": 316,
+      "height": 418,
+      "frames": 12,
+      "loop": 0,
+      "delay": [
+        130,
+        130,
+        130,
+        130,
+        130,
+        130,
+        130,
+        130,
+        130,
+        130,
+        130,
+        130
+      ],
+      "uniqueFrames": 12
+    },
+    {
+      "key": "thinking",
+      "file": "thinking.gif",
+      "sha256": "8ca387401797b7b4cb35e3560c9033a27c2b240582dd7a275861567df38dc9c2",
+      "width": 364,
+      "height": 362,
+      "frames": 12,
+      "loop": 0,
+      "delay": [
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250
+      ],
+      "uniqueFrames": 12
+    },
+    {
+      "key": "rest",
+      "file": "rest.gif",
+      "sha256": "1c452b31cc603b6e1ea57b3cf43020c82fbf734493fa5b969190c868e48b270a",
+      "width": 362,
+      "height": 362,
+      "frames": 12,
+      "loop": 0,
+      "delay": [
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250
+      ],
+      "uniqueFrames": 12
+    },
+    {
+      "key": "complete",
+      "file": "complete.gif",
+      "sha256": "e3753fc62b16d5244a8a25a3175eb16028d00e666eae408c3d2186486095d566",
+      "width": 362,
+      "height": 362,
+      "frames": 12,
+      "loop": 0,
+      "delay": [
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250,
+        250
+      ],
+      "uniqueFrames": 12
+    }
+  ]
+}

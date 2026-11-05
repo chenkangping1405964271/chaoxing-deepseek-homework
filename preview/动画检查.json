@@ -1,0 +1,83 @@
+{
+  "result": "PASS",
+  "checks": [
+    "all four user-supplied GIF source hashes match their unchanged originals",
+    "lossless animated WebP preserves every visible source pixel, transparency, frame count and infinite loop",
+    "every frame delay and all four loop durations use exactly 1.25x playback speed",
+    "static thumbnails and reduced-motion assets are exact first-frame copies",
+    "all four embedded animations visibly change frames in the browser with a fixed image position",
+    "pose thumbnails remain static and use the new character artwork",
+    "idle, requesting, paused and complete statuses select the matching user animation",
+    "reduced-motion preference freezes all four poses using real static files",
+    "changing motion preference restores the current pose animation without a status reset",
+    "full hide stops both mascot animations and showing the interface restores the same pose",
+    "the collapsed dock follows the current animated status",
+    "animated artwork remains embedded with no remote image or model requests"
+  ],
+  "browserErrors": [],
+  "assets": [
+    {
+      "key": "welcome",
+      "width": 316,
+      "height": 418,
+      "frames": 12,
+      "loop": 0,
+      "inputMs": 1560,
+      "outputMs": 1248,
+      "playbackRate": 1.25,
+      "bytes": 518016
+    },
+    {
+      "key": "thinking",
+      "width": 364,
+      "height": 362,
+      "frames": 12,
+      "loop": 0,
+      "inputMs": 3000,
+      "outputMs": 2400,
+      "playbackRate": 1.25,
+      "bytes": 516420
+    },
+    {
+      "key": "rest",
+      "width": 362,
+      "height": 362,
+      "frames": 12,
+      "loop": 0,
+      "inputMs": 3000,
+      "outputMs": 2400,
+      "playbackRate": 1.25,
+      "bytes": 459658
+    },
+    {
+      "key": "complete",
+      "width": 362,
+      "height": 362,
+      "frames": 12,
+      "loop": 0,
+      "inputMs": 3000,
+      "outputMs": 2400,
+      "playbackRate": 1.25,
+      "bytes": 440588
+    }
+  ],
+  "visualFrames": [
+    {
+      "key": "welcome",
+      "distinctScreenshots": 4
+    },
+    {
+      "key": "thinking",
+      "distinctScreenshots": 4
+    },
+    {
+      "key": "rest",
+      "distinctScreenshots": 4
+    },
+    {
+      "key": "complete",
+      "distinctScreenshots": 4
+    }
+  ],
+  "limits": "Actual user-provided artwork decoded and displayed in local browser fixtures. Model API and real course behavior are outside these animation checks."
+}
