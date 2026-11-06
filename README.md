@@ -34,6 +34,8 @@
 - 统一的选项适配层覆盖旧版 `.Zy_ulTop`、新版 `.answerBg`、原生 radio/checkbox 与关联 label、ARIA radio/checkbox、带 `data-option` 或常见选项类名的控件；题目也可按题目标识和标题结构识别，不绑定课程或题号。
 - 按实际显示状态识别选项，正确区分读屏用的 [`aria-hidden`](https://design-system.w3.org/styles/how-to-hide-and-show-things.html) 和视觉隐藏；排除 CSS/HTML 隐藏副本。优先使用页面真实选项字母，多选会清理旧选项并回读完整选中集合；旧版提供答案隐藏字段时也会核对其值。
 - 支持课程学习页面中多层同源 iframe 内的作业；只显示一个助手面板，翻页和提交限定在识别到的作业内。题目加载时最多等待 10 秒。
+- v0.5.7 支持同一章节内嵌多份测验：“答题范围”列出各份测验及题数，默认第一份，也可切换后开始；每次只填写所选测验，其他测验分别运行。来源不明确的多份答题文档需先选择。翻页续答按原测验和任务标识定位。
+- 章节填空中折叠在可见输入占位区后的已就绪 UEditor，也会通过实例填写、同步及校验；隐藏占位区、只读和未就绪编辑器不会被当作可填写区域。
 - v0.5.1 补上 `/exam/`、`/exam-ans/` 考试路径入口、`type题号` 题型字段和 `.answerBg` 答案存储回读。考试嵌在同源 iframe 内时也参与识别；自动提交会禁用，原先保存的作业提交偏好不会被清除。考试页无需填写作业总题数。
 - 题型、选项延后渲染时最多等待 10 秒；只读控件、重复字母或无法区分的可见副本会给出具体原因。
 - 图片题需要 API 模型实际支持图像输入，脚本会把题干、选项及读取的图片发送给 API 服务商。
@@ -74,6 +76,7 @@ npm ci
 npm run build
 npm run check-ui
 npm run check-frames
+npm run check-multi-work
 npm run check-fonts
 npm run check-adapters
 npm run check-exams

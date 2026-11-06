@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         学习通作业 DeepSeek 自动填答
 // @namespace    cxds.homework
-// @version      0.5.6
+// @version      0.5.7
 // @license      MIT
 // @homepageURL  https://github.com/chenkangping1405964271/chaoxing-deepseek-homework
 // @supportURL   https://github.com/chenkangping1405964271/chaoxing-deepseek-homework/issues
@@ -51,6 +51,9 @@
   let logNode;
   let pendingNavigation = null;
   let interfaceHidden = false;
+  let selectedQuestionDocument = null;
+  let explicitQuestionDocument = null;
+  let questionDocumentOptions = [];
   const shortcutDocuments = new WeakSet();
 
   const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
@@ -82,14 +85,77 @@
     return { documents, frames };
   }
 
-  async function findQuestionDocument(token) {
+  function chapterWorkFrame(doc) {
+    try {
+      for (let view = doc.defaultView; view && view !== window;) {
+        const frame = view.frameElement;
+        if (!frame) return null;
+        if (frame.matches('.ans-attach-ct iframe[jobid^="work-"]')) return frame;
+        view = frame.ownerDocument.defaultView;
+      }
+    } catch { /* Not an accessible chapter work frame. */ }
+    return null;
+  }
+
+  function sameChapterWorks(matches) {
+    const frames = matches.map(chapterWorkFrame);
+    return matches.length > 1 && !matches.some(isExam) && frames.every(Boolean)
+      && new Set(frames).size === frames.length
+      && frames.every(frame => frame.ownerDocument === frames[0].ownerDocument)
+      && /\/knowledge\/cards\/?$/.test(frames[0].ownerDocument.location.pathname);
+  }
+
+  function syncQuestionDocuments(documents = frameDocuments().documents) {
+    const matches = documents.filter(doc => rootsIn(doc).length);
+    const chapterWorks = sameChapterWorks(matches);
+    if (!matches.includes(selectedQuestionDocument)) {
+      selectedQuestionDocument = matches.length === 1 || chapterWorks ? matches[0] : null;
+      explicitQuestionDocument = null;
+    }
+    if (matches.length > 1 && !chapterWorks && selectedQuestionDocument !== explicitQuestionDocument) selectedQuestionDocument = null;
+    const select = field('questionDocument');
+    const labels = matches.map((doc, index) => '测验 ' + (index + 1) + '（' + rootsIn(doc).length + ' 题）');
+    if (matches.length !== questionDocumentOptions.length || matches.some((doc, index) => doc !== questionDocumentOptions[index])
+      || labels.some((label, index) => select.options[index + 1]?.textContent !== label)) {
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '请选择本次要填写的测验';
+      select.replaceChildren(placeholder, ...labels.map((label, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = label;
+        return option;
+      }));
+      questionDocumentOptions = matches;
+    }
+    select.value = selectedQuestionDocument ? String(matches.indexOf(selectedQuestionDocument)) : '';
+    select.disabled = running;
+    select.closest('label').hidden = matches.length < 2;
+    return matches;
+  }
+
+  async function findQuestionDocument(token, resumeScope = null) {
     setStatus('正在等待作业题目加载');
     for (let i = 0; i <= 100; i++) {
       assertRunning(token);
       const { documents, frames } = frameDocuments();
-      const matches = documents.filter(doc => rootsIn(doc).length);
-      if (matches.length > 1) throw new Error('发现多个答题页面，请只保留一份可见答题页');
-      if (matches.length === 1) return matches[0];
+      const matches = syncQuestionDocuments(documents);
+      if (resumeScope && matches.length) {
+        const sameTask = [];
+        for (const doc of matches) if (await navigationScope(doc) === resumeScope) sameTask.push(doc);
+        assertRunning(token);
+        // A sibling test can load before the original target after a wrapper reload.
+        if (!sameTask.length && matches[0] !== document && i < 100) { await wait(100); continue; }
+        if (sameTask.length !== 1) throw new Error('已离开原答题任务或无法唯一定位原测验，续答已停止');
+        selectedQuestionDocument = sameTask[0];
+        explicitQuestionDocument = selectedQuestionDocument;
+        field('questionDocument').value = String(matches.indexOf(selectedQuestionDocument));
+      }
+      if (matches.length > 1 && !selectedQuestionDocument) throw new Error('发现多个答题页面，请在“答题范围”选择本次测验');
+      if (selectedQuestionDocument) {
+        if (matches.length > 1) setStatus('已识别 ' + matches.length + ' 份测验，本次填写第 ' + (matches.indexOf(selectedQuestionDocument) + 1) + ' 份');
+        return selectedQuestionDocument;
+      }
       if (i === 100) throw new Error(frames.some(f => !f.accessible)
         ? '题目所在 iframe 无法访问，请切换到题目内的助手或单独打开作业页'
         : '作业题目尚未加载，请先打开可作答的作业再开始');
@@ -97,13 +163,13 @@
     }
   }
 
-  function visible(el) {
+  function visible(el, displayException = null) {
     if (!el || !el.isConnected) return false;
     for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
       // aria-hidden hides content from accessibility APIs, not from visual users.
       if (node.hidden) return false;
       const style = node.ownerDocument.defaultView.getComputedStyle(node);
-      if (style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || style.contentVisibility === 'hidden' || Number(style.opacity) === 0) return false;
+      if (style.display === 'none' && node !== displayException || style.visibility === 'hidden' || style.visibility === 'collapse' || style.contentVisibility === 'hidden' || Number(style.opacity) === 0) return false;
     }
     return true;
   }
@@ -260,6 +326,7 @@
     action('stop').disabled = !value;
     for (const name of ['save', 'models', 'test', 'clearKey']) action(name).disabled = value;
     for (const button of panel.querySelectorAll('.pose[data-pose]')) button.disabled = value;
+    field('questionDocument').disabled = value;
     syncCompanion(value ? '正在准备' : statusNode.textContent);
   }
 
@@ -745,7 +812,14 @@
         && !nodes.some(parent => parent !== el && parent.contains(el) && parent.isContentEditable));
       for (const element of outer) fields.push({ element, frames, anchor: frames[0] || element, kind: element.isContentEditable || element === container ? frames.length ? 'iframe-text' : 'contenteditable' : 'native-text' });
       for (const frame of container.querySelectorAll('iframe, frame')) {
-        if (!visible(frame)) continue;
+        // Chapter blanks keep ready UEditor instances behind a visible click-to-edit proxy.
+        // Their hidden answer textarea is storage, never the editable target.
+        const folded = frame.closest('.textDIV');
+        const proxy = folded?.previousElementSibling;
+        const foldedBlank = folded?.parentElement.matches('.blankItemInp') && proxy?.matches('.InpDIV')
+          && visible(proxy) && editable(proxy) && !frame.hidden && editable(frame)
+          && frame.closest('.edui-editor') && visible(frame, folded);
+        if (!visible(frame) && !foldedBlank) continue;
         stats.frames++;
         let doc;
         try { doc = frame.contentDocument; if (doc) void doc.location.href; } catch { /* Cross origin. */ }
@@ -1080,7 +1154,8 @@
     try {
       if (!settings.apiKey || !settings.model) throw new Error('请配置 API Key 和模型');
       if (resumeState && !settings.autoNext) throw new Error('自动翻页已关闭，续答已停止');
-      let questionDocument = await findQuestionDocument(token);
+      let questionDocument = await findQuestionDocument(token, resumeState?.scope);
+      const questionFrame = questionDocument.defaultView.frameElement;
       const scope = await navigationScope(questionDocument);
       if (resumeState && scope !== resumeState.scope) throw new Error('已离开原答题任务，续答已停止');
       assertRunning(token);
@@ -1135,12 +1210,22 @@
             assertRunning(token);
             const documents = frameDocuments().documents;
             if (!documents.includes(questionDocument)) {
-              const matches = documents.filter(doc => rootsIn(doc).length);
-              if (matches.length > 1) throw new Error('翻页后发现多个答题页面，请手动检查');
+              let matches = documents.filter(doc => rootsIn(doc).length);
               if (!matches.length) continue;
+              if (questionFrame?.isConnected) {
+                matches = matches.filter(doc => doc.defaultView.frameElement === questionFrame);
+                if (!matches.length) continue;
+              } else if (matches.length > 1) {
+                  const sameTask = [];
+                  for (const doc of matches) if (await navigationScope(doc) === checkpoint.scope) sameTask.push(doc);
+                  matches = sameTask;
+                if (matches.length !== 1) throw new Error('翻页后无法定位原测验，请重新选择答题范围');
+              }
               if (await navigationScope(matches[0]) !== checkpoint.scope) throw new Error('翻页后已离开原答题任务，续答已停止');
               assertRunning(token);
               questionDocument = matches[0];
+              selectedQuestionDocument = questionDocument;
+              explicitQuestionDocument = questionDocument;
             }
             const newRoots = rootsIn(questionDocument);
             try { changed = !!newRoots.length && newRoots.map(parseQuestion).map(q => q.signature).join('|') !== pageKey; } catch { changed = false; }
@@ -1166,7 +1251,8 @@
             if (confirmations.length === 1) { confirmations[0].click(); break; }
           }
           setStatus('已点击提交，请查看页面确认结果');
-        } else setStatus(examPage ? '当前页面填答完成，请核对后手动交卷' : resumeState ? '跨页续答完成，请核对后手动提交' : '当前页面填答完成，请检查作业及提交状态');
+        } else setStatus(examPage ? '当前页面填答完成，请核对后手动交卷' : resumeState ? '跨页续答完成，请核对后手动提交'
+          : frameDocuments().documents.filter(doc => rootsIn(doc).length).length > 1 ? '当前测验填答完成，请核对；可在“答题范围”切换其他测验' : '当前页面填答完成，请检查作业及提交状态');
         break;
       }
     } catch (error) {
@@ -1194,13 +1280,14 @@
     const { documents, frames } = frameDocuments();
     const candidates = documents.flatMap(doc => [...doc.querySelectorAll(ROOT_SELECTOR)].filter(el => visible(el) && el.querySelector(TITLE_SELECTOR)));
     const questionRoots = roots();
-    return { version: '0.5.6', autoNext: settings.autoNext, running, interfaceHidden, pageChangeRetryLimit: PAGE_CHANGE_RETRIES,
+    return { version: '0.5.7', autoNext: settings.autoNext, running, interfaceHidden, pageChangeRetryLimit: PAGE_CHANGE_RETRIES,
       page: location.origin + location.pathname, title: document.title, questionCount: questionRoots.length,
       documentCount: documents.length, frames,
       documents: documents.map(doc => {
         let nextAvailable = false, navigationError;
         try { nextAvailable = !!nextButton(doc); } catch (error) { navigationError = error.message; }
-        return { page: doc.location.origin + doc.location.pathname, questionCount: rootsIn(doc).length, nextAvailable, navigationError,
+        return { page: doc.location.origin + doc.location.pathname, questionCount: rootsIn(doc).length, selected: doc === selectedQuestionDocument,
+          chapterWork: !!chapterWorkFrame(doc), nextAvailable, navigationError,
           encryptedFontLoaded: [...doc.fonts].some(face => /font-cxsecret/.test(face.family) && face.status === 'loaded') };
       }),
       candidateCount: candidates.length, excludedContainerCount: candidates.length - questionRoots.length,
@@ -1281,6 +1368,15 @@
     for (const name of ['model', 'expectedTotal', 'delayMs']) field(name).value = settings[name];
     for (const name of ['autoNext', 'autoSubmit']) field(name).checked = settings[name];
     syncSubmitMode();
+    syncQuestionDocuments();
+    field('questionDocument').onchange = () => {
+      if (running) return;
+      const value = field('questionDocument').value;
+      selectedQuestionDocument = value === '' ? null : questionDocumentOptions[Number(value)] || null;
+      explicitQuestionDocument = selectedQuestionDocument;
+      if (selectedQuestionDocument) setStatus('已选择' + field('questionDocument').selectedOptions[0].textContent + '，点击开始答题');
+    };
+    setInterval(() => { if (!running) syncQuestionDocuments(); }, 1000);
     document.addEventListener('load', event => {
       if (event.target.matches?.('iframe, frame')) syncSubmitMode();
     }, true);

@@ -125,6 +125,38 @@ try {
   checks.push('multiple UEditor blanks follow document order and do not count hidden backing fields twice');
   await test.context.close();
 
+  const foldedBlank = id => `<div class="blankItemInp"><div class="InpDIV"></div><div class="textDIV" style="display:none">${iframe(id, true)}</div></div>`;
+  test = await setup(foldedBlank('folded1') + foldedBlank('folded2'), { type: '2', answers: ['第一空', '第二空'] });
+  await run(test);
+  assert.deepEqual(await test.work.locator('textarea').evaluateAll(inputs => inputs.map(input => input.value)), ['<p>第一空</p>', '<p>第二空</p>']);
+  assert.equal(await test.work.locator('.textDIV').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).display === 'none')), true);
+  checks.push('chapter blank proxies expose ready folded UEditor instances in order without opening editors or writing hidden textareas directly');
+  await test.context.close();
+
+  test = await setup(foldedBlank('folded1'), { readonly: true });
+  await run(test, /只读状态/);
+  assert.equal(await test.page.evaluate(() => window.__requests.length), 0);
+  checks.push('folded UEditor instances still reject read-only bodies');
+  await test.context.close();
+
+  test = await setup(foldedBlank('folded1'), { delayed: true });
+  await run(test);
+  assert.equal(await test.work.evaluate(() => window.__editorSyncs), 1);
+  checks.push('folded UEditor readiness is awaited before requesting an answer');
+  await test.context.close();
+
+  test = await setup(`<div hidden>${foldedBlank('hidden1')}</div>` + iframe('visible1', true));
+  await run(test);
+  assert.deepEqual(await test.work.locator('textarea').evaluateAll(inputs => inputs.map(input => input.value)), ['', '<p>完整答案</p>']);
+  checks.push('a hidden blank proxy cannot make its hidden UEditor count as an answer field');
+  await test.context.close();
+
+  test = await setup(foldedBlank('hidden1').replace('<iframe ', '<iframe hidden ') + iframe('visible1', true));
+  await run(test);
+  assert.deepEqual(await test.work.locator('textarea').evaluateAll(inputs => inputs.map(input => input.value)), ['', '<p>完整答案</p>']);
+  checks.push('a separately hidden editor frame stays excluded even beside a visible blank proxy');
+  await test.context.close();
+
   test = await setup('<input type="text">' + iframe(), { type: '2', answers: ['第一空', '第二空'] });
   await run(test);
   assert.equal(await test.work.locator('.questionLi input[type=text]').inputValue(), '第一空');

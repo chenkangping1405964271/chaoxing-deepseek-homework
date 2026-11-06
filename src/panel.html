@@ -44,7 +44,8 @@
   .section-title small { color:#91a6b7; font-size:9px; letter-spacing:.08em; font-weight:500; }
   label { display:block; color:#5c7892; font-size:11px; font-weight:600; }
   label+label { margin-top:9px; }
-  input[type=password],input[type=text],input[type=number] { display:block; width:100%; min-width:0; height:35px; margin-top:5px; padding:7px 10px; border:1px solid #dde8f0; border-radius:10px; background:#f8fbfd; color:#355670; font-size:12px; font-weight:400; outline:none; transition:border-color .15s,box-shadow .15s; }
+  input[type=password],input[type=text],input[type=number],select { display:block; width:100%; min-width:0; height:35px; margin-top:5px; padding:7px 10px; border:1px solid #dde8f0; border-radius:10px; background:#f8fbfd; color:#355670; font-size:12px; font-weight:400; outline:none; transition:border-color .15s,box-shadow .15s; }
+  .question-scope { margin-bottom:10px; }
   input::placeholder { color:#a1b1bf; }
   input:focus-visible { border-color:#8fbadd; box-shadow:0 0 0 3px #c8e1f45c; }
   .tools { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:10px; }
@@ -114,6 +115,7 @@
       </div>
     </details>
     <section class="section"><h4 class="section-title">作业设置 <small>按自己的节奏来</small></h4>
+      <label class="question-scope" hidden>答题范围<select data-field="questionDocument" aria-label="答题范围"></select></label>
       <div class="switches"><label><input type="checkbox" data-field="autoNext">自动翻页</label><label><input type="checkbox" data-field="autoSubmit">自动提交</label></div>
       <div class="row"><label>作业总题数<input type="number" min="0" data-field="expectedTotal"></label><label>题间隔（毫秒）<input type="number" min="0" max="30000" data-field="delayMs"></label></div>
     </section>

@@ -41,7 +41,8 @@ try {
   await page.waitForFunction(() => [...document.querySelector('#cxds-panel').shadowRoot.querySelectorAll('img')].every(i => i.complete && i.naturalWidth > 0));
   assert.equal(await shell.locator('.pose').count(), 4);
   assert.equal(await shell.locator('[data-action]').count(), 7);
-  assert.equal(await shell.locator('[data-field]').count(), 6);
+  assert.equal(await shell.locator('[data-field]').count(), 7);
+  assert.equal(await shell.locator('[data-field="questionDocument"]').isVisible(), false);
   assert.equal(await shell.locator('[data-role="connection"]').getAttribute('open'), '');
   assert.equal(await shell.locator('[data-field="autoSubmit"]').isChecked(), false);
   checks.push('four embedded illustrations decode; all existing controls mount; auto-submit default stays off');

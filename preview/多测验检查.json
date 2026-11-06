@@ -1,0 +1,19 @@
+{
+  "result": "PASS",
+  "checks": [
+    "same-chapter 12+3 work frames are recognized as separate selectable tests; hidden attachments excluded and diagnostics redacted",
+    "the multi-test selector fits the desktop and 390px phone layout with commands visible",
+    "default first chapter test fills only its 12 questions and leaves the sibling test untouched",
+    "selecting the second test fills its three questions independently despite reused question numbers and IDs",
+    "unrelated simultaneous work documents require an explicit choice; the selected document alone is filled",
+    "selection is locked while running and a focus change cannot redirect pending answers",
+    "a selected sibling iframe can reload for the next question without switching to the first test",
+    "a complete wrapper reload resumes the second test by its task scope instead of the default first test",
+    "navigation from the selected frame to a different task pauses before answering that task",
+    "removing the selected work frame during a model request cannot redirect its answer into the remaining test",
+    "a single work document keeps the extra scope control hidden",
+    "manual pause cancels the selected test request and unlocks the scope control without filling either test"
+  ],
+  "browserErrors": [],
+  "network": "Fictional fixtures only; model API mocked and all other requests blocked."
+}

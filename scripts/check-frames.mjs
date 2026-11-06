@@ -131,7 +131,7 @@ try {
 
   test = await setup(legacy(), '<iframe src="/second"></iframe>');
   await test.page.evaluate(() => window.__cxdsFrameTest.run());
-  assert.match(await test.page.locator('#cxds-panel [data-role="status"]').textContent(), /多个答题页面/);
+  assert.match(await test.page.locator('#cxds-panel [data-role="status"]').textContent(), /多个答题页面.*答题范围/);
   assert.equal(await test.page.evaluate(() => window.__requests.length), 0);
   checks.push('ambiguous simultaneous work documents pause before requesting answers');
   await test.context.close();
